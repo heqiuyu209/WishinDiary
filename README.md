@@ -179,7 +179,7 @@ cd C:\path\to\WishinDiary\wishindiary-api
 ..\.venv\Scripts\python.exe scripts/inspect_model.py
 ```
 
-重新训练后必须更新 `MODEL_SHA256`；生产环境不会加载哈希不匹配的模型。线上拒绝旧的 pickle/joblib 文件。
+重新训练后必须更新 `MODEL_SHA256`；生产环境不会加载哈希不匹配的模型。
 
 ## 测试与质量门禁
 
@@ -217,7 +217,7 @@ npm audit 和前端构建。
 
 ## 开源贡献
 
-请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。不要提交真实用户数据、`.env`、缓存、数据库转储或未经授权的模型。
+请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可证
 
