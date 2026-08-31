@@ -1,0 +1,28 @@
+{
+  "name": "wishindiary-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "axios": "1.19.0",
+    "echarts": "6.1.0",
+    "pinia": "4.0.3",
+    "tailwindcss": "4.3.3",
+    "v-calendar": "3.1.2",
+    "vue": "3.5.41",
+    "vue-router": "5.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.8",
+    "vite": "8.2.2"
+  }
+}

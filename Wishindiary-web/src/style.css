@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+:root {
+  --glass-nav-height: 6rem;
+}
+
+@theme {
+  /* 品牌玫瑰色系（对齐现有 rose-500/600） */
+  --color-brand-50: #fff1f2;
+  --color-brand-100: #ffe4e6;
+  --color-brand-500: #f43f5e;
+  --color-brand-600: #e11d48;
+
+  /* 卡片圆角与柔和阴影（对齐现有 rounded-3xl + 阴影） */
+  --radius-card: 1.5rem;
+  --shadow-soft: 0 8px 30px rgb(0 0 0 / 0.04);
+
+  /* 毛玻璃参数（iOS 风格） */
+  --glass-bg: rgb(255 255 255 / 0.52);
+  --glass-blur: 28px;
+}

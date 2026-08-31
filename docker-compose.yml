@@ -1,0 +1,79 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: wishindiary-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required}
+      MYSQL_DATABASE: ${DB_NAME:?DB_NAME is required}
+      MYSQL_USER: ${DB_USER:?DB_USER is required}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    volumes:
+      - ./wishindiary-api/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+      - mysql_data:/var/lib/mysql
+    # 数据库端口不暴露到宿主机，仅在 docker 网络内部可达
+    networks:
+      - wishin-network
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$${MYSQL_ROOT_PASSWORD}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./wishindiary-api
+      dockerfile: Dockerfile
+    container_name: wishindiary-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    environment:
+      ENVIRONMENT: production
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:?DB_USER is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: ${DB_NAME:?DB_NAME is required}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:8080}
+      MODEL_SHA256: ${MODEL_SHA256:?MODEL_SHA256 is required}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - wishin-network
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+
+  frontend:
+    build:
+      context: ./Wishindiary-web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /
+    container_name: wishindiary-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - wishin-network
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  wishin-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
