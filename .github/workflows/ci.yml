@@ -58,7 +58,7 @@ jobs:
           DB_USER: root
           DB_PASSWORD: ci-root-${{ github.run_id }}
           DB_NAME: wishindiary_test_db
-        run: pytest
+        run: python -m pytest
 
   frontend-build:
     name: Frontend Build Check
