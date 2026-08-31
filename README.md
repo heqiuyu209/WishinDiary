@@ -216,7 +216,6 @@ npm audit 和前端构建。
 周期、症状、同房记录和日记属于敏感健康数据。请只在自己控制的环境中部署，使用 HTTPS、访问控制、加密备份和明确的数据删除策略。请阅读 [SECURITY.md](SECURITY.md)。
 
 ## 开源贡献
-
 请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可证
