@@ -32,15 +32,18 @@
 
 ```text
 WishinDiary/
-├── wishindiary-api/              # FastAPI 后端、schema、模型和测试
+├── wishindiary-api/              # FastAPI 后端、迁移、模型和测试
 │   ├── app/                      # core、features、ml、repositories、routers、services
+│   ├── migrations/               # Alembic 数据库迁移（含版本历史与回滚）
 │   ├── ml/menstrual_rf_model.skops
-│   ├── scripts/                  # 本地配置、训练、模型检查
-│   ├── tests/
-│   └── schema.sql
+│   ├── scripts/                  # 本地配置、训练、模型检查、备份恢复、数据清理
+│   └── tests/
 ├── Wishindiary-web/              # Vue 3 前端
 ├── docker-compose.yml            # MySQL + API + Nginx Web
 ├── scripts/setup_docker.ps1      # 自动生成 Docker 本地密钥
+├── docs/demo/                    # 演示截图（合成数据）
+├── CHANGELOG.md
+├── CODE_OF_CONDUCT.md
 ├── MODEL_CARD.md
 ├── SECURITY.md
 └── LICENSE
@@ -117,10 +120,12 @@ py -3.12 -m venv .venv
 powershell -ExecutionPolicy Bypass -File .\wishindiary-api\scripts\setup_local.ps1 -DbUser root -DbName wishindiary_db
 ```
 
-首次初始化空数据库时执行：
+首次初始化空数据库时，使用 Alembic 迁移建表（数据库结构统一由
+`wishindiary-api/migrations/` 管理）：
 
-```sql
-SOURCE C:/path/to/WishinDiary/wishindiary-api/schema.sql;
+```powershell
+cd C:\path\to\WishinDiary\wishindiary-api
+..\.venv\Scripts\python.exe -m alembic upgrade head
 ```
 
 ### 常见启动问题：模型版本警告
@@ -137,6 +142,14 @@ cd C:\path\to\WishinDiary
 
 发布模型当前按 `requirements.txt` 中锁定的 scikit-learn 版本训练。若你有意升级
 scikit-learn，请重新训练模型、运行 `scripts\inspect_model.py`，并重新确认模型哈希。
+
+当前发布的模型由 **scikit-learn 1.5.2** 训练保存，除 1.5.2 外也已在 **1.9.0 + skops 0.11.0**
+组合下实测：同一份模型两个版本加载与推理结果一致。使用方式二选一：
+
+- **官方默认（无警告）**：按 `requirements.txt` 安装（scikit-learn==1.5.2、skops==0.14.0）。
+- **自愿升级 1.9.0**：`pip install scikit-learn==1.9.0 skops==0.11.0`。推理正常，仅启动加载时打印
+  一条一次性的 `InconsistentVersionWarning`，可忽略。若升级后重训模型并发布新模型文件，
+  请同步更新 `MODEL_SHA256` 与本段说明。
 
 ### 3. 启动 API
 
@@ -215,8 +228,34 @@ npm audit 和前端构建。
 
 周期、症状、同房记录和日记属于敏感健康数据。请只在自己控制的环境中部署，使用 HTTPS、访问控制、加密备份和明确的数据删除策略。请阅读 [SECURITY.md](SECURITY.md)。
 
+数据生命周期接口与脚本：
+
+- **导出**：`GET /api/user/export` 返回当前用户的全部健康数据（用户资料、周期、每日日志、预测记录），用于数据可携带与个人备份。
+- **删除**：`DELETE /api/user/me` 在单个事务中删除当前账号及其全部关联数据（级联清理，含外键 CASCADE 兜底）。
+- **保留期限**：环境变量 `DATA_RETENTION_DAYS`（0 表示无限期保留，默认）；设置 >0 后可运行 `wishindiary-api/scripts/cleanup_expired_data.py` 定期清理过期数据。
+- **备份与恢复**：`wishindiary-api/scripts/backup_database.sh` / `restore_database.sh`（支持 Docker Compose 与本地 MySQL），详细说明见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 与 [docs/DATA_LIFECYCLE.md](docs/DATA_LIFECYCLE.md)。
+
+## 演示与截图
+
+> 截图占位：首次 Release 前会把界面截图放入 `docs/demo/` 目录并在下方替换为图片链接。
+> 在线 Demo：为避免真实健康数据风险，本项目暂不提供公共在线 Demo；如需体验，请按上文 Docker Compose 在本机部署。
+
+- 登录页（*待补充：`docs/demo/login.png`*）
+- 日历周期记录与预测（*待补充：`docs/demo/calendar.png`*）
+- 统计看板（*待补充：`docs/demo/dashboard.png`*）
+- 健康报告（*待补充：`docs/demo/report.png`*）
+
+截图统一存放在 `docs/demo/`，命名规则以页面英文名为准（`login.png`、`calendar.png`、`dashboard.png`、`report.png`）。截图仅允许使用合成数据，不得包含真实用户信息。
+
 ## 开源贡献
-请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，其中包含维护者名单与问题响应范围。发生不当行为或安全问题时的举报渠道见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) 与 [SECURITY.md](SECURITY.md)。
+
+## 支持与反馈
+
+- 问题与功能建议：请在仓库提交 issue（有 Bug / 功能 / 咨询三类模板）。
+- 安全漏洞：请通过 SECURITY.md 中描述的私有渠道报告，不要公开提交。
+- 日常使用与部署问题：可先查阅 `docs/` 目录（部署、数据生命周期、发布前检查）。
+- 响应范围与维护节奏见 CONTRIBUTING.md 的"维护者与问题响应范围"段。
 
 ## 许可证
 

@@ -38,6 +38,16 @@ docker compose ps
 `http://127.0.0.1:8000/api/health`。不要把 MySQL 3306 或 Uvicorn 8000
 直接暴露到公网。
 
+> 关于客户端 IP 与可信代理：日志、登录限流都会用到客户端 IP。
+> - systemd + Nginx 部署（见下文方案二）已显式启用
+>   `--proxy-headers --forwarded-allow-ips=127.0.0.1`，只信任本机 Nginx 转发的
+>   `X-Forwarded-For`；
+> - Docker Compose 部署的 backend 已启用 `--proxy-headers
+>   --forwarded-allow-ips=172.16.0.0/12`（见 `wishindiary-api/Dockerfile`），
+>   仅信任 Docker 私有网段内 Nginx 容器转发的 `X-Forwarded-For`，请求日志中
+>   可显示真实客户端 IP。切勿改为 `--forwarded-allow-ips=*`
+>   （会信任任意来源伪造的 IP）。
+
 ### 2. 日志与故障排查
 
 ```bash
@@ -70,7 +80,13 @@ docker compose up -d --build
 
 ### 4. 数据库备份与恢复
 
-备份：
+备份（Docker Compose 环境，推荐使用仓库脚本，输出 gzip 压缩到 `./backups/`）：
+
+```bash
+./wishindiary-api/scripts/backup_database.sh
+```
+
+等价的手动方式：
 
 ```bash
 umask 077
@@ -83,10 +99,17 @@ docker compose exec -T db sh -c 'mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --si
 
 ```bash
 docker compose stop backend
-docker compose exec -T db sh -c 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < wishindiary-backup.sql
+./wishindiary-api/scripts/restore_database.sh ./backups/wishindiary-<时间戳>.sql.gz
 docker compose start backend
 curl --fail http://127.0.0.1:8000/api/health
 ```
+
+本地 MySQL 环境使用脚本时需设置 `BACKEND_MODE=local` 并导出
+`DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME`，详见脚本头部注释。
+
+数据库结构由 Alembic 迁移管理。升级代码前先备份；部署新版本时容器会自动执行
+`alembic upgrade head`。如需回滚数据库结构，在 `wishindiary-api` 目录执行
+`alembic downgrade <上一版本号>`（可先用 `alembic history` 查看版本线）。
 
 ## 方案二：Ubuntu + systemd + Nginx
 
@@ -96,7 +119,9 @@ curl --fail http://127.0.0.1:8000/api/health
 - API 以受限用户 `wishindiary` 运行
 - 已安装 Python 3.12、Node.js 22.18+、MySQL 8 和 Nginx
 - 域名为 `diary.example.com`，请替换为你的真实域名
-- MySQL 已创建最小权限用户并导入 `wishindiary-api/schema.sql`
+- MySQL 已创建最小权限用户，并已通过 Alembic 迁移初始化数据库结构
+  （在 `wishindiary-api` 目录执行 `alembic upgrade head`，结构统一由
+  `wishindiary-api/migrations/` 管理）
 
 ### 1. 安装与构建
 
@@ -108,6 +133,7 @@ cd /opt/wishindiary/wishindiary-api
 sudo -u wishindiary python3.12 -m venv .venv
 sudo -u wishindiary .venv/bin/python -m pip install --upgrade pip
 sudo -u wishindiary .venv/bin/python -m pip install -r requirements.txt
+sudo -u wishindiary .venv/bin/python -m alembic upgrade head   # 初始化/升级数据库结构
 
 cd /opt/wishindiary/Wishindiary-web
 npm ci
