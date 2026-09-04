@@ -97,10 +97,16 @@ onMounted(async () => {
         <div class="relative bg-white p-5 rounded-2xl border border-rose-50">
           <p class="text-xs font-bold text-gray-800 mb-2">我的状态解读</p>
           <div class="space-y-2 mb-3">
-            <p v-if="healthReportData.cycle_length_hint" class="text-[11.5px] text-gray-600 leading-relaxed font-medium">
+            <p
+              v-if="healthReportData.cycle_length_hint"
+              class="text-[11.5px] text-gray-600 leading-relaxed font-medium"
+            >
               {{ healthReportData.cycle_length_hint }}
             </p>
-            <p v-if="healthReportData.data_readiness" class="text-[11.5px] text-gray-600 leading-relaxed font-medium">
+            <p
+              v-if="healthReportData.data_readiness"
+              class="text-[11.5px] text-gray-600 leading-relaxed font-medium"
+            >
               {{ healthReportData.data_readiness }}
             </p>
           </div>

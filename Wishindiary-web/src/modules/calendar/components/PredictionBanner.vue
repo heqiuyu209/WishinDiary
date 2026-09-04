@@ -51,10 +51,7 @@ defineProps<{ prediction: PredictionResponseData | null }>();
     >
       {{ prediction.medical_guardrail_note }}
     </div>
-    <div
-      v-if="prediction && prediction.data_quality_warnings?.length"
-      class="mt-2 space-y-1.5"
-    >
+    <div v-if="prediction && prediction.data_quality_warnings?.length" class="mt-2 space-y-1.5">
       <div
         v-for="(warning, idx) in prediction.data_quality_warnings"
         :key="idx"

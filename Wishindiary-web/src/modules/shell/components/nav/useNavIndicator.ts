@@ -14,7 +14,10 @@ export function useNavIndicator(
   const layoutTick = ref(0);
 
   const activeIndex = computed(() =>
-    Math.max(0, items.value.findIndex((item) => item.name === activeName.value)),
+    Math.max(
+      0,
+      items.value.findIndex((item) => item.name === activeName.value),
+    ),
   );
 
   const indicatorStyle = computed<CSSProperties>(() => {

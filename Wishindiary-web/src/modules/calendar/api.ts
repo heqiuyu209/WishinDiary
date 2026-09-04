@@ -20,17 +20,14 @@ export const logEndApi = (data: LogEndRequest): Promise<AxiosResponse<CycleOpera
 export const saveDailyLogApi = (data: DailyLogRequest): Promise<AxiosResponse<DailyLogResponse>> =>
   httpClient.post('/api/v1/daily_log', data);
 
-export const getDailyLogApi = (
-  date: string,
-): Promise<AxiosResponse<DailyLogReadResponse>> =>
+export const getDailyLogApi = (date: string): Promise<AxiosResponse<DailyLogReadResponse>> =>
   httpClient.get('/api/v1/daily_log', { params: { date } });
 
-export const updateDailyLogApi = (data: DailyLogRequest): Promise<AxiosResponse<DailyLogResponse>> =>
-  httpClient.put('/api/v1/daily_log', data);
+export const updateDailyLogApi = (
+  data: DailyLogRequest,
+): Promise<AxiosResponse<DailyLogResponse>> => httpClient.put('/api/v1/daily_log', data);
 
-export const deleteDailyLogApi = (
-  date: string,
-): Promise<AxiosResponse<DailyLogResponse>> =>
+export const deleteDailyLogApi = (date: string): Promise<AxiosResponse<DailyLogResponse>> =>
   httpClient.delete('/api/v1/daily_log', { params: { date } });
 
 export const updateCycleApi = (
