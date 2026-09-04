@@ -41,7 +41,6 @@ WishinDiary/
 ├── Wishindiary-web/              # Vue 3 前端
 ├── docker-compose.yml            # MySQL + API + Nginx Web
 ├── scripts/setup_docker.ps1      # 自动生成 Docker 本地密钥
-├── docs/demo/                    # 演示截图（合成数据）
 ├── CHANGELOG.md
 ├── CODE_OF_CONDUCT.md
 ├── MODEL_CARD.md
