@@ -159,7 +159,8 @@ DB_PASSWORD=<strong-random-database-password>
 DB_NAME=wishindiary_db
 SECRET_KEY=<at-least-32-random-characters>
 CORS_ORIGINS=https://diary.example.com
-MODEL_SHA256=6f01416b50834899aa60a803b5980ec9c1a25d9ed6f92d0a07559054756fc888
+# 模型 SHA-256：先运行 scripts/train.py 生成模型，再用 scripts/inspect_model.py 查询实际值填入（不预设固定哈希）
+MODEL_SHA256=<fill-after-generating-model>
 ```
 
 ```bash

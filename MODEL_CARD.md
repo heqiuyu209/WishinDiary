@@ -15,7 +15,7 @@
 ## 安全发布要求
 
 - 线上只接受 `.skops` 模型文件；拒绝 pickle/joblib。
-- 发布流水线计算 SHA-256，并通过 `MODEL_SHA256` 校验。
+- 训练后由 `scripts/inspect_model.py` 计算 SHA-256，运行时通过 `MODEL_SHA256` 校验（development 环境下可留空跳过校验）。
 - 记录训练代码版本、依赖锁文件、数据集许可证和评估切分策略。
 
 ## 评估基准（v2，本地评估用，不入库）

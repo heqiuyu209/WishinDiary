@@ -23,7 +23,7 @@
 - JWT 登录与登出，凭据通过 HttpOnly Cookie 传递，不写入登录响应体。
 - 用户数据查询按 `user_id` 隔离，多用户数据互不可见。
 - 周期记录、趋势看板、结构健康报告与本地随机森林预测。
-- 模型以 `.skops` 交付，附带 SHA-256 与特征契约校验；提供 `MODEL_CARD.md`。
+- 模型不随仓库交付：由 `scripts/train.py` 本地生成，附带 SHA-256 与特征契约校验；提供 `MODEL_CARD.md`。
 - README、贡献指南（CONTRIBUTING）、安全策略（SECURITY）等内容文档。
 - 纯合成数据训练脚本，训练不读取真实用户数据库。
 
@@ -49,7 +49,7 @@
 
 - 增加 request ID 便于全链路追踪。
 - 日志改为结构化输出，增加请求耗时、错误率、数据库连接池与模型推理指标。
-- 支持接入 Sentry 并输出 OpenTelemetry 相关数据。
+- 支持接入 Sentry；OpenTelemetry 输出为后续演进方向。
 - 设计并实现生产环境 TLS 终止方案（Nginx/Caddy 终止 TLS，`/api/` 反代到 API）。
 - 提供自动化数据库备份与恢复演练文档与脚本。
 

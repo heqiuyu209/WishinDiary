@@ -37,8 +37,8 @@ git ls-files | Select-String -Pattern '(^|/)(\.env|node_modules|\.venv|\.idea|\.
 - pickle/joblib 模型或未经授权的数据集、模型权重
 - 个人绝对路径、内网地址、私有下载链接
 
-只允许发布经过审计并记录哈希的
-`wishindiary-api/ml/menstrual_rf_model.skops`。
+模型不随发行版发布：`*.skops` 已在 .gitignore 排除，一律由 `scripts/train.py`
+本地生成（见 MODEL_CARD.md），发布内容不包含模型文件。
 
 ## GitHub 仓库设置
 
@@ -54,12 +54,12 @@ git ls-files | Select-String -Pattern '(^|/)(\.env|node_modules|\.venv|\.idea|\.
 
 ## 首个正式版本 v1.0.0 发布流程（与 release.yml 打通）
 
-`.github/workflows/release.yml` 会在推送 `v*` 标签时自动校验后端测试与前端构建、生成 Changelog、扫描 SBOM 并把以下资产挂到 Release：SBOM、数据库迁移（`migrations/versions/*.py`）、模型文件、`requirements.txt` 与 `MODEL_CARD.md`。发布 v1.0.0 的步骤如下：
+`.github/workflows/release.yml` 会在推送 `v*` 标签时自动校验后端测试与前端构建、生成 Changelog、扫描 SBOM 并把以下资产挂到 Release：SBOM、数据库迁移（`migrations/versions/*.py`）、`requirements.txt` 与 `MODEL_CARD.md`（模型不随发行版附送，见 MODEL_CARD.md）。发布 v1.0.0 的步骤如下：
 
 1. **冻结范围**：确认 CHANGELOG 的 `[Unreleased]` 已整理，合并所有计划进入 v1.0.0 的 PR。
 2. **核对迁移与模型**
    - 运行 `cd wishindiary-api && python -m alembic heads`，确认只有一个 head，并把 head 编号记录进 Release 说明。
-   - 运行 `python scripts/inspect_model.py`，确认 `MODEL_SHA256` 与 `MODEL_CARD.md` 中记录的哈希一致。
+   - 运行 `python scripts/inspect_model.py`，确认本地生成模型的 `MODEL_SHA256` 与 `MODEL_CARD.md` 记录的评估基准哈希一致（模型不随发行版附送）。
 3. **更新 CHANGELOG**：新建 `[1.0.0] - <日期>` 小节，将 Unreleased 内容移入并补充"升级说明"段（见下方模板）。
 4. **运行全部自动检查**（见本文档开头），确保后端测试、Ruff、前端构建、npm audit 与 `docker compose config` 全部通过。
 5. **打标签并推送**：
@@ -72,7 +72,7 @@ git ls-files | Select-String -Pattern '(^|/)(\.env|node_modules|\.venv|\.idea|\.
    ```
    推送标签会触发 `release.yml`；请到 GitHub Release 页面用下方"Release 说明模板"复核或补写正文后再正式发布。
 
-## Release 说明模板（数据库迁移 / 模型哈希 / 兼容范围）
+## Release 说明模板（数据库迁移 / 模型评估基准 / 兼容范围）
 
 每个正式 Release 的说明正文应包含以下内容，其中号部分每次发布时替换：
 
@@ -87,17 +87,16 @@ git ls-files | Select-String -Pattern '(^|/)(\.env|node_modules|\.venv|\.idea|\.
 > - 回滚：`python -m alembic downgrade -1`（如需回滚到上一版本）
 >
 > ### 模型
-> - 模型文件：`wishindiary-api/ml/menstrual_rf_model.skops`
-> - 模型版本：`cycle-rf-v1`
-> - `MODEL_SHA256`：`<与 MODEL_CARD.md 一致的 SHA-256>`（当前 `6f01416b50834899aa60a803b5980ec9c1a25d9ed6f92d0a07559054756fc888`）
-> - 模型仅以 `.skops` 交付，未发布 pickle/joblib，见 MODEL_CARD.md。
+> - 模型：不随发行版附送，由 `scripts/train.py --synthetic-only` 本地生成（见 MODEL_CARD.md）。
+> - 本地评估基准：`cycle-rf-v2`，SHA-256 见 MODEL_CARD.md（当前 `bd315ff749b13f37ba601f68c1e1a56a77c1dd507aa88e9d498fb052220ed3eb`）。
+> - 兼容性：按 `wishindiary-api/requirements.txt` 锁定的 scikit-learn 版本生成模型，避免运行时不匹配。
 >
 > ### 兼容范围
 > - 兼容的 API 版本：`/api/v1`；本版本内尚未出现破坏性变更，若有请在此列出。
 > - 支持环境：Python 3.12、Node.js 22.18+、MySQL 8.0+、Docker Compose。
 > - 数据兼容：依赖数据库迁移，升级前请先备份（`scripts/backup_database.sh`）。
 
-> 注意：`MODEL_SHA256` 必须与 `MODEL_CARD.md` 完全一致，且建议由 CI（发布前检查）比对模型文件哈希，避免人为拷贝错误。
+> 注意：本地生成模型后请用 `scripts/inspect_model.py` 校正 `MODEL_SHA256`（Docker 部署由 `setup_docker.ps1` 自动写入）；校验值用于与 `MODEL_CARD.md` 评估基准比对，避免误用旧模型。
 
 ## 发布版本规划
 
