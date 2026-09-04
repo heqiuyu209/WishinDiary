@@ -6,7 +6,7 @@
 # 每次正式发布应同步完成：
 #   1. CHANGELOG 更新；
 #   2. 数据库迁移版本号确认（alembic heads）；
-#   3. 模型哈希与 MODEL_CARD.md 一致（后端 ml/menstrual_rf_model.skops 的 SHA-256）。
+#   3. 模型按 scripts/train.py 用合成数据本地生成，并核对 MODEL_CARD.md 评估基准（仓库不附带模型文件）。
 name: Release
 
 on:
@@ -23,6 +23,24 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-rel-${{ github.run_id }}
+          MYSQL_DATABASE: wishindiary_test_db
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ci-rel-${{ github.run_id }}
+      DB_NAME: wishindiary_test_db
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,17 +65,25 @@ jobs:
 
       - name: Generate Changelog
         run: |
-          # 简单而稳定的 changelog 生成：列出 tag 间的提交
-          LATEST=$(git describe --tags --abbrev=0 2>/dev/null || echo "start")
-          PREVIOUS=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "start")
+          # Changelog：取上一版本 tag 到当前 tag（当前推送标签）的提交区间
+          CURRENT_TAG="${{ github.ref_name }}"
+          PREVIOUS=$(git describe --tags --abbrev=0 "${CURRENT_TAG}^" 2>/dev/null || true)
           {
             echo "## WishinDiary Changelog"
             echo ""
-            echo "### ${{ github.ref_name }} ($(date -u +%Y-%m-%d))"
+            echo "### ${CURRENT_TAG} ($(date -u +%Y-%m-%d))"
             echo ""
-            echo "#### Commits since $LATEST"
+            if [ -n "$PREVIOUS" ]; then
+              echo "#### Commits since ${PREVIOUS}"
+            else
+              echo "#### Commits（首个标签，无上一版本）"
+            fi
             echo ""
-            git log --oneline --no-merges ${LATEST}..HEAD 2>/dev/null | sed 's/^/- /' || echo "- initial release"
+            if [ -n "$PREVIOUS" ]; then
+              git log --oneline --no-merges "${PREVIOUS}..${CURRENT_TAG}" 2>/dev/null | sed 's/^/- /' || echo "- no new commits"
+            else
+              git log --oneline --no-merges "${CURRENT_TAG}" 2>/dev/null | sed 's/^/- /' || echo "- initial release"
+            fi
           } > CHANGELOG_RELEASE.md
 
       - name: Generate SBOM (Syft)
@@ -77,7 +103,6 @@ jobs:
           files: |
             CHANGELOG_RELEASE.md
             sbom.spdx.json
-            wishindiary-api/ml/menstrual_rf_model.skops
             wishindiary-api/requirements.txt
             wishindiary-api/migrations/versions/*.py
             MODEL_CARD.md
