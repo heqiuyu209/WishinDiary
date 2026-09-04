@@ -1,5 +1,7 @@
 """Feature engineering helpers for cycle model training."""
 
+import math
+
 import pandas as pd
 import pymysql
 from datetime import date, datetime
@@ -141,14 +143,18 @@ def build_cycle_feature_matrix(
         lambda values: values.shift(1).rolling(3, min_periods=3).std()
     )
 
-    # 时间特征
+    # 时间特征（P0-1）：start_month 改为 sin/cos 循环编码，
+    # 避免 1 月与 12 月被当成"相距最远"而产生断崖（月份是循环变量）。
     df_cycles["start_date"] = pd.to_datetime(df_cycles["start_date"])
-    df_cycles["start_month"] = df_cycles["start_date"].dt.month
+    _month_rad = 2.0 * math.pi * (df_cycles["start_date"].dt.month - 1.0) / 12.0
+    df_cycles["start_month_sin"] = _month_rad.apply(math.sin)
+    df_cycles["start_month_cos"] = _month_rad.apply(math.cos)
 
     features = [
         "lag_1_length", "lag_2_length", "lag_3_length",
         "lag_1_bleeding", "lag_2_bleeding", "lag_3_bleeding",
-        "roll_3_mean", "roll_3_std", "start_month",
+        "roll_3_mean", "roll_3_std",
+        "start_month_sin", "start_month_cos",
     ]
 
     feature_matrix = df_cycles.dropna(subset=features + ["target_length"]).reset_index(drop=True)
@@ -159,8 +165,14 @@ def build_cycle_feature_matrix(
     return X, y, feature_matrix
 
 
-def get_latest_features_for_user(user_id: int) -> tuple[dict[str, float | int], date]:
+def get_latest_features_for_user(user_id: int) -> tuple[dict[str, float | int], date, int, float]:
     """为 API 服务：提取某个用户最新的一次预测特征。
+
+    返回 (features, last_start_date, n_complete_cycles, user_mean)：
+    - features: 与 contract.FEATURE_NAMES 完全对应的 10 维特征（含 start_month_sin/cos）；
+    - last_start_date: 用户最新标记的开始日期；
+    - n_complete_cycles / user_mean: 个人完整周期数与未收缩周期长度均值，
+      供贝叶斯收缩个性化（P0-2）在 service 层使用。
 
     设计要点：
     - 完整周期（cycle_length 非空）用于构造滑动窗口特征；
@@ -200,7 +212,17 @@ def get_latest_features_for_user(user_id: int) -> tuple[dict[str, float | int], 
                 df_cycles["bleeding_days"].isna()
                 | df_cycles["bleeding_days"].between(MIN_BLEEDING_DAYS, MAX_BLEEDING_DAYS)
             )
-        ].sort_values("start_date").tail(4).reset_index(drop=True)
+        ].sort_values("start_date")
+
+    # P0-2 贝叶斯收缩个性化统计：
+    # 在 tail(4) 截断窗口之前基于健康过滤后的全部历史（LIMIT 50 内）统计，
+    # n_complete_cycles = 完整周期数（至少 4 个才能进入下方窗口判断）；
+    # user_mean = 未收缩的原始周期长度均值，与训练清洗口径一致。
+    n_complete_cycles = int(len(df_cycles)) if not df_cycles.empty else 0
+    user_mean = float(df_cycles["cycle_length"].mean()) if n_complete_cycles > 0 else 0.0
+
+    if not df_cycles.empty:
+        df_cycles = df_cycles.tail(4).reset_index(drop=True)
 
     if len(df_cycles) < 4:
         raise ValueError("数据不足：需要至少4个完整周期才能进行机器学习预测")
@@ -223,7 +245,8 @@ def get_latest_features_for_user(user_id: int) -> tuple[dict[str, float | int], 
         "lag_3_bleeding": float(latest_row["lag_3_bleeding"]),
         "roll_3_mean": float(latest_row["roll_3_mean"]),
         "roll_3_std": float(latest_row["roll_3_std"]),
-        "start_month": int(latest_row["start_month"]),
+        "start_month_sin": float(latest_row["start_month_sin"]),
+        "start_month_cos": float(latest_row["start_month_cos"]),
     }
 
     # 预测基准：优先用最新标记的开始日期
@@ -240,4 +263,4 @@ def get_latest_features_for_user(user_id: int) -> tuple[dict[str, float | int], 
     elif isinstance(last_start_date, str):
         last_start_date = pd.to_datetime(last_start_date, errors="raise").date()
 
-    return features, last_start_date
+    return features, last_start_date, n_complete_cycles, user_mean
