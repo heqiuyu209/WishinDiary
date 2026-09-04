@@ -18,7 +18,7 @@
 
 ## 2. 数据导出（可携带权）
 
-接口：`GET /api/user/export`
+接口：`GET /api/v1/user/export`
 
 - 认证：需要登录（HttpOnly Cookie）。
 - 返回：JSON，包含 `user`、`cycles`、`daily_logs`、`prediction_logs` 全部数据，
@@ -29,12 +29,12 @@
 示例：
 
 ```bash
-curl -b cookies.txt http://127.0.0.1:8000/api/user/export > my-data.json
+curl -b cookies.txt http://127.0.0.1:8000/api/v1/user/export > my-data.json
 ```
 
 ## 3. 用户数据删除（被遗忘权）
 
-接口：`DELETE /api/user/me`
+接口：`DELETE /api/v1/user/me`
 
 - 认证：需要登录（HttpOnly Cookie）。
 - 行为：在**单个事务**内按依赖顺序显式删除

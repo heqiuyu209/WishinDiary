@@ -12,18 +12,23 @@ HTTP 请求
    │
    ▼
 ┌────────────────────────────┐
-│  Router 层（app/routers）   │  薄路由：请求解析 / 鉴权 / 响应返回，不含业务与 DB
+│  Router 层（app/routers）   │  请求解析 / 鉴权 / 响应返回（目标：不含业务与 DB，见 §1 现状说明）
 ├────────────────────────────┤
 │  Schema 层（app/schemas）   │  Pydantic 请求/响应模型，统一 API 类型契约
 ├────────────────────────────┤
 │  Service 层（app/services） │  业务规则 / 事务编排 / 调用 Repository，抛 AppError
 ├────────────────────────────┤
-│  Repository 层（app/repositories）│  纯数据访问函数（cursor, ...），SQL 唯一入口
+│  Repository 层（app/repositories）│  纯数据访问函数（cursor, ...）（目标：SQL 集中在此）
 │                            │  底部：MySQL（通过 app.core.database 连接池）
 └────────────────────────────┘
 ```
 
-依赖方向**自上而下单向**：Router → Service → Repository，禁止反向依赖或越层调用（Router 不得直连 DB）。
+依赖方向**自上而下单向**（目标）：Router → Service → Repository，禁止反向依赖或越层调用。
+
+> **现状说明（诚实口径）**：上图与下述约定描述的是**目标分层架构**，迁移仍在进行中。当前
+> `app/routers/auth.py`（登录 / 刷新令牌 / 登录限流）与 `app/features/` 特征工程中的部分读取仍直接访问
+> 数据库（`with connection.cursor()` 等），尚未全部下沉到 Repository。新代码请遵循目标分层，遗留的
+> 直连 SQL 正逐步迁移（见 §3.1）。
 
 ## 2. 目录结构
 
@@ -58,7 +63,7 @@ wishindiary-api/
 │       ├── stats.py  report.py  user_data.py
 ├── tests/                       # pytest（Alembic 建测试库）
 ├── migrations/                  # Alembic 迁移（0001_initial_schema.py 等）
-└── ml/                          # 预训练模型 .skops / 训练脚本
+└── ml/                          # 模型文件（scripts/train.py 本地生成，不入库）
 ```
 
 ## 3. 各层职责与约定
@@ -66,7 +71,8 @@ wishindiary-api/
 ### 3.1 Router 层（`app/routers/`）
 
 - 只做：声明 HTTP 端点、解析请求（依赖注入、Pydantic 模型）、调用 Service、返回响应。
-- 不包含：SQL、业务规则、事务管理。
+- 不包含（目标）：SQL、业务规则、事务管理。
+  > 现状：`auth.py`（如刷新令牌、登录限流）仍直接访问数据库，属于待迁移的遗留实现；新路由请勿新增直连 SQL，改走 Service → Repository。
 - 所有业务路由使用 `prefix="/api/v1"`（auth 为 `/api/v1/auth`），见 ADR-002。
 - 鉴权依赖 `get_current_user_id`（从 `app.routers.auth` 导入）注入 `user_id`。
 
@@ -88,7 +94,7 @@ wishindiary-api/
 
 ### 3.4 Repository 层（`app/repositories/`）
 
-- 纯数据访问：函数接收 `cursor`，返回行 dict / 列表，SQL 全部集中于此。
+- 纯数据访问（目标）：函数接收 `cursor`，返回行 dict / 列表；SQL 应集中于此，遗留直连 SQL 的迁移现状见 §1 说明。
 - 不处理业务逻辑，不做事务提交/回滚（由调用方 Service 通过 `transaction()` 管理）。
 - 通过 `app/repositories/__init__.py` 统一导出，Service 只依赖导出的函数名。
 
@@ -119,11 +125,11 @@ with transaction() as connection:      # 成功自动 commit，异常自动 roll
   - Pydantic 校验错误 → 422 `validation_error`；
   - 未预期异常 → 500 `internal_error`（并记录日志）。
 
-前端按 `err.response?.data?.error?.message` 解析错误（见 `Wishindiary-web/src/api/httpClient.js` 与各视图）。
+前端按 `err.response?.data?.error?.message` 解析错误（见 `Wishindiary-web/src/shared/api/httpClient.ts` 与各视图）。
 
 ## 6. 请求数据流示例：周期写入
 
-以 `POST /api/v1/cycles/start` 为例：
+以 `POST /api/v1/log_start` 为例：
 
 1. `app/routers/cycles.py` 解析 `LogStartRequest`，注入 `user_id`；
 2. 调用 `CycleService().log_start(user_id, start_date)`；
@@ -136,7 +142,7 @@ with transaction() as connection:      # 成功自动 commit，异常自动 roll
 
 - 业务接口统一挂 `/api/v1` 前缀（auth/cycles/daily_logs/prediction/stats/report/user_data）。
 - `/api/health` 保留为无版本前缀的探活端点（不做 DB 强依赖语义）。
-- 前端 `VITE_API_BASE_URL=http://localhost:8000`，请求路径形如 `/api/v1/auth/login`、`/api/v1/cycles/list`。
+- 前端 `VITE_API_BASE_URL=http://localhost:8000`，请求路径形如 `/api/v1/auth/login`、`/api/v1/log_start`。
 
 ## 8. 数据库迁移
 
