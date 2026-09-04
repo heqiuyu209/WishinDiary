@@ -1,18 +1,25 @@
 from .cycle_repository import (
     get_user_daily_logs,
     get_user_latest_cycle,
+    get_conflicting_closed_cycle,
     get_user_valid_cycles,
     get_cycle_by_id,
     get_all_cycles_sorted,
     update_cycle_dates,
     delete_cycle,
     recalculate_cycle_lengths,
+    get_unclosed_cycle_for_update,
+    close_cycle,
+    insert_cycle,
+    get_cycle_for_log_end,
+    get_prev_cycle,
+    get_next_cycle,
+    update_cycle_end,
 )
 from .report_repository import get_user_cycle_summary
 from .stats_repository import get_recent_daily_logs, get_user_dashboard_data
 
 __all__ = [
-    "get_user_daily_logs",
     "get_user_latest_cycle",
     "get_user_valid_cycles",
     "get_cycle_by_id",
@@ -20,6 +27,14 @@ __all__ = [
     "update_cycle_dates",
     "delete_cycle",
     "recalculate_cycle_lengths",
+    "get_unclosed_cycle_for_update",
+    "get_conflicting_closed_cycle",
+    "close_cycle",
+    "insert_cycle",
+    "get_cycle_for_log_end",
+    "get_prev_cycle",
+    "get_next_cycle",
+    "update_cycle_end",
     "get_user_cycle_summary",
     "get_user_dashboard_data",
     "get_recent_daily_logs",
