@@ -62,6 +62,17 @@ WishinDiary/
 
 ### Windows PowerShell
 
+> 首次使用请先构建后端虚拟环境并生成模型（仓库不附带预训练模型，见 [MODEL_CARD.md](MODEL_CARD.md)）：
+
+```powershell
+cd C:\path\to\WishinDiary
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r .\wishindiary-api\requirements.txt
+.\.venv\Scripts\python.exe scripts\train.py --synthetic-only
+```
+
+然后生成 Docker 配置并启动：
+
 ```powershell
 cd C:\path\to\WishinDiary
 powershell -ExecutionPolicy Bypass -File .\scripts\setup_docker.ps1
@@ -69,9 +80,22 @@ docker compose up -d --build
 docker compose ps
 ```
 
+> `setup_docker.ps1` 会校验模型文件，若缺失会自动调用训练脚本生成（详见脚本注释）。
+
 打开 <http://127.0.0.1:8080>。
 
 ### Linux/macOS
+
+> 首次使用请先构建后端虚拟环境并生成模型（仓库不附带预训练模型，见 [MODEL_CARD.md](MODEL_CARD.md)）：
+
+```bash
+cd /path/to/WishinDiary
+python3 -m venv .venv
+.venv/bin/pip install -r wishindiary-api/requirements.txt
+.venv/bin/python scripts/train.py --synthetic-only
+```
+
+然后生成 Docker 配置并启动：
 
 ```bash
 cd /path/to/WishinDiary
@@ -235,22 +259,21 @@ npm audit 和前端构建。
 
 数据生命周期接口与脚本：
 
-- **导出**：`GET /api/user/export` 返回当前用户的全部健康数据（用户资料、周期、每日日志、预测记录），用于数据可携带与个人备份。
-- **删除**：`DELETE /api/user/me` 在单个事务中删除当前账号及其全部关联数据（级联清理，含外键 CASCADE 兜底）。
+- **导出**：`GET /api/v1/user/export` 返回当前用户的全部健康数据（用户资料、周期、每日日志、预测记录），用于数据可携带与个人备份。
+- **删除**：`DELETE /api/v1/user/me` 在单个事务中删除当前账号及其全部关联数据（级联清理，含外键 CASCADE 兜底）。
 - **保留期限**：环境变量 `DATA_RETENTION_DAYS`（0 表示无限期保留，默认）；设置 >0 后可运行 `wishindiary-api/scripts/cleanup_expired_data.py` 定期清理过期数据。
 - **备份与恢复**：`wishindiary-api/scripts/backup_database.sh` / `restore_database.sh`（支持 Docker Compose 与本地 MySQL），详细说明见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 与 [docs/DATA_LIFECYCLE.md](docs/DATA_LIFECYCLE.md)。
 
-## 演示与截图
+## 功能演示
 
-以下截图使用合成数据生成，仅作界面演示（不含真实用户信息）：
+> 说明：仓库不附带截图文件（原演示图含 AI 生成水印，已移除以避免误导）。如需体验界面，请按上文的 Docker Compose 或本地开发章节在本机部署，以下功能可直接体验：
 
-![登录页](docs/demo/login.png)
+- **登录/注册**：注册账号登录后凭 HttpOnly Cookie 保持会话。
+- **日历周期记录与预测**：记录经期开始/结束日期，基于随机森林模型生成周期预测。
+- **统计看板**：查看周期趋势与健康指标统计。
+- **健康报告**：生成结构化健康报告。
 
-![日历周期记录与预测](docs/demo/calendar.png)
-
-![统计看板](docs/demo/dashboard.png)
-
-![健康报告](docs/demo/report.png)
+界面数据为合成或本地自测数据，不含任何真实用户信息；模型与数据口径见 [MODEL_CARD.md](MODEL_CARD.md)。
 
 > 在线 Demo：为避免真实健康数据风险，本项目不提供公共在线 Demo；如需体验，请按上文 Docker Compose 在本机部署。
 
