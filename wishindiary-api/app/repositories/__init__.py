@@ -1,5 +1,4 @@
 from .cycle_repository import (
-    get_user_daily_logs,
     get_user_latest_cycle,
     get_conflicting_closed_cycle,
     get_user_valid_cycles,
