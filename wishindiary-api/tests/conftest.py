@@ -1,16 +1,40 @@
+from pathlib import Path
+
 import pytest
 import pymysql
 from fastapi.testclient import TestClient
+from alembic import command
+from alembic.config import Config
+
 from app.main import app
 from app.core.config import settings
 from app.core import database
 
 TEST_DB_NAME = "wishindiary_test_db"
 
+# wishindiary-api 项目根目录（alembic.ini 所在目录）
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
+
+
+def _alembic_upgrade_to_head(test_db_name: str) -> None:
+    """在指定数据库上运行 Alembic 迁移到 head，统一由迁移文件建表。
+
+    数据库结构只维护在 migrations/versions/ 中（收敛自 schema.sql 与旧 conftest），
+    Alembic 会记录版本号，保证本地 Docker 与 pytest 测试建表一致。
+    """
+    url = (
+        f"mysql+pymysql://{settings.DB_USER}:{settings.DB_PASSWORD}"
+        f"@{settings.DB_HOST}:{settings.DB_PORT}/{test_db_name}?charset=utf8mb4"
+    )
+    cfg = Config(str(ALEMBIC_INI))
+    cfg.set_main_option("sqlalchemy.url", url)
+    command.upgrade(cfg, "head")
+
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database():
-    """测试会话开始前，自动创建测试库并刷入最新的建表语句。
+    """测试会话开始前，自动创建测试库并通过 Alembic 迁移建表。
 
     关键：把 app.core.database 的连接池切换到测试库，
     避免测试误写生产库 (wishindiary_db)。
@@ -22,83 +46,13 @@ def setup_test_database():
         autocommit=True
     )
     with conn.cursor() as cursor:
-        cursor.execute(f"CREATE DATABASE IF NOT EXISTS {TEST_DB_NAME} DEFAULT CHARACTER SET utf8mb4;")
+        # 重建测试库，保证 Alembic 从空库开始建表（兼容旧 conftest 内联建表的残留表）
+        cursor.execute(f"DROP DATABASE IF EXISTS {TEST_DB_NAME};")
+        cursor.execute(f"CREATE DATABASE {TEST_DB_NAME} DEFAULT CHARACTER SET utf8mb4;")
     conn.close()
 
-    # 刷入基础 Schema
-    db_conn = pymysql.connect(
-        host=settings.DB_HOST,
-        user=settings.DB_USER,
-        password=settings.DB_PASSWORD,
-        database=TEST_DB_NAME,
-        autocommit=True
-    )
-    with db_conn.cursor() as cursor:
-        # 依次清理并重建表结构
-        cursor.execute("DROP TABLE IF EXISTS prediction_logs;")
-        cursor.execute("DROP TABLE IF EXISTS daily_logs;")
-        cursor.execute("DROP TABLE IF EXISTS cycles;")
-        cursor.execute("DROP TABLE IF EXISTS users;")
-
-        cursor.execute("""
-                       CREATE TABLE users
-                       (
-                           user_id         INT AUTO_INCREMENT PRIMARY KEY,
-                           username        VARCHAR(50) UNIQUE NOT NULL,
-                           password_hash   VARCHAR(255)       NOT NULL
-                       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-                       """)
-        cursor.execute("""
-                       CREATE TABLE cycles
-                       (
-                           cycle_id      INT AUTO_INCREMENT PRIMARY KEY,
-                           user_id       INT  NOT NULL,
-                           start_date    DATE NOT NULL,
-                           end_date      DATE DEFAULT NULL,
-                           cycle_length  INT  DEFAULT NULL,
-                           bleeding_days INT  DEFAULT NULL,
-                           UNIQUE KEY uk_user_start (user_id, start_date),
-                           CHECK (end_date IS NULL OR end_date >= start_date),
-                           CHECK (cycle_length IS NULL OR cycle_length BETWEEN 1 AND 120),
-                           CHECK (bleeding_days IS NULL OR bleeding_days BETWEEN 1 AND 30),
-                           FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
-                       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-                       """)
-        cursor.execute("""
-                       CREATE TABLE daily_logs
-                       (
-                           log_id           INT AUTO_INCREMENT PRIMARY KEY,
-                           user_id          INT  NOT NULL,
-                           log_date         DATE NOT NULL,
-                           mood_level       INT          DEFAULT 0,
-                           cramps_severity  INT          DEFAULT 0,
-                           is_exercise      BOOLEAN      DEFAULT FALSE,
-                           is_intercourse   BOOLEAN      DEFAULT FALSE,
-                           exercise_type    VARCHAR(50)  DEFAULT NULL,
-                           exercise_minutes INT          DEFAULT 0,
-                           diet_tag         VARCHAR(100) DEFAULT NULL,
-                           journal_text     TEXT         DEFAULT NULL,
-                           UNIQUE KEY uk_user_date (user_id, log_date),
-                           CHECK (mood_level BETWEEN 0 AND 3),
-                           CHECK (cramps_severity BETWEEN 0 AND 3),
-                           CHECK (exercise_minutes >= 0),
-                           FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
-                       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-                       """)
-        cursor.execute("""
-                       CREATE TABLE prediction_logs
-                       (
-                           pred_id         INT AUTO_INCREMENT PRIMARY KEY,
-                           user_id         INT  NOT NULL,
-                           predicted_date  DATE NOT NULL,
-                           actual_date     DATE DEFAULT NULL,
-                           error_days      INT  DEFAULT NULL,
-                           created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                           KEY idx_prediction_pending (user_id, actual_date, created_at),
-                           FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
-                       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-                       """)
-    db_conn.close()
+    # 通过 Alembic 迁移建表（含版本表 alembic_version）
+    _alembic_upgrade_to_head(TEST_DB_NAME)
 
     # 让应用连接池指向测试库，隔离生产数据
     database.pool.close()
@@ -146,6 +100,9 @@ def truncate_tables():
     )
     with db_conn.cursor() as cursor:
         cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+        # 登录限流表必须一并清空，防止跨用例累计触发 429
+        cursor.execute("TRUNCATE TABLE login_attempts;")
+        cursor.execute("TRUNCATE TABLE refresh_tokens;")
         cursor.execute("TRUNCATE TABLE prediction_logs;")
         cursor.execute("TRUNCATE TABLE daily_logs;")
         cursor.execute("TRUNCATE TABLE cycles;")
@@ -162,9 +119,14 @@ def client():
 
 @pytest.fixture
 def auth_header(client):
-    """ 注册并登录测试用户，返回带有 Bearer Token 的 Header """
+    """注册并登录测试用户，返回空 headers（认证凭据在 HttpOnly Cookie 中）。
+
+    登录接口已不再在响应体返回 access_token；TestClient 会保留
+    Set-Cookie 并自动随后续请求携带，因此业务接口仅需依赖 Cookie。
+    """
     user_payload = {"username": "test_user", "password": "password123"}
-    client.post("/api/auth/register", json=user_payload)
-    response = client.post("/api/auth/login", json=user_payload)
-    token = response.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    client.post("/api/v1/auth/register", json=user_payload)
+    response = client.post("/api/v1/auth/login", json=user_payload)
+    assert response.status_code == 200, response.text
+    assert "access_token" not in response.json(), "登录响应体不应再携带 JWT"
+    return {}
