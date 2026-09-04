@@ -1,0 +1,83 @@
+# Release 工作流：推送 v* 标签时触发，生成 changelog 与发布资产。
+#
+# 版本标签规范（语义化版本）：
+#   - vMAJOR.MINOR.PATCH         例如 v1.0.0
+#   - vMAJOR.MINOR.PATCH-rc.N    预发布候选，例如 v1.1.0-rc.1
+# 每次正式发布应同步完成：
+#   1. CHANGELOG 更新；
+#   2. 数据库迁移版本号确认（alembic heads）；
+#   3. 模型哈希与 MODEL_CARD.md 一致（后端 ml/menstrual_rf_model.skops 的 SHA-256）。
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify backend build & tests
+        working-directory: ./wishindiary-api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          ruff check app scripts tests
+          python -m pytest
+
+      - name: Verify frontend build
+        working-directory: ./Wishindiary-web
+        run: |
+          npm ci
+          npm run type-check
+          npm run build
+
+      - name: Generate Changelog
+        run: |
+          # 简单而稳定的 changelog 生成：列出 tag 间的提交
+          LATEST=$(git describe --tags --abbrev=0 2>/dev/null || echo "start")
+          PREVIOUS=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "start")
+          {
+            echo "## WishinDiary Changelog"
+            echo ""
+            echo "### ${{ github.ref_name }} ($(date -u +%Y-%m-%d))"
+            echo ""
+            echo "#### Commits since $LATEST"
+            echo ""
+            git log --oneline --no-merges ${LATEST}..HEAD 2>/dev/null | sed 's/^/- /' || echo "- initial release"
+          } > CHANGELOG_RELEASE.md
+
+      - name: Generate SBOM (Syft)
+        uses: anchore/sbom-action@v0.17.4
+        with:
+          path: ./
+          format: spdx
+          output-file: sbom.spdx.json
+
+      - name: Publish Release with Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: CHANGELOG_RELEASE.md
+          draft: ${{ contains(github.ref_name, '-rc.') }}
+          prerelease: ${{ contains(github.ref_name, '-rc.') }}
+          fail_on_unmatched_files: true
+          files: |
+            CHANGELOG_RELEASE.md
+            sbom.spdx.json
+            wishindiary-api/ml/menstrual_rf_model.skops
+            wishindiary-api/requirements.txt
+            wishindiary-api/migrations/versions/*.py
+            MODEL_CARD.md

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 项目文档与使用指南
+    url: https://github.com/heqiuyu209/WishinDiary#readme
+    about: 先阅读 README、docs/ 目录与 wiki，确认问题是否已有答案。
+  - name: 安全漏洞
+    url: https://github.com/heqiuyu209/WishinDiary/security/policy
+    about: 如涉及密码、JWT 密钥、数据泄露等安全问题，请走 SECURITY.md 中描述的私有渠道，不要公开提交 issue。

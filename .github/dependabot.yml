@@ -1,0 +1,33 @@
+# Dependabot 自动依赖更新：GitHub Actions / npm / pip 三生态。
+# 目录粒度：npm 依赖在 Wishindiary-web（前端），pip 依赖在 wishindiary-api（后端）。
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  - package-ecosystem: "npm"
+    directory: "/Wishindiary-web"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "javascript"
+    # 安全更新（npm audit fixed）也自动开 PR
+    security-updates-only: false
+    versioning-strategy: increase
+
+  - package-ecosystem: "pip"
+    directory: "/wishindiary-api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
