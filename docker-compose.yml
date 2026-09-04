@@ -1,6 +1,6 @@
 services:
   db:
-    image: mysql:8.0
+    image: mysql:8.0.46
     container_name: wishindiary-db
     restart: unless-stopped
     environment:
@@ -9,7 +9,6 @@ services:
       MYSQL_USER: ${DB_USER:?DB_USER is required}
       MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
     volumes:
-      - ./wishindiary-api/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
       - mysql_data:/var/lib/mysql
     # 数据库端口不暴露到宿主机，仅在 docker 网络内部可达
     networks:

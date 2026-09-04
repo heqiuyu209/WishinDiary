@@ -35,7 +35,7 @@ WishinDiary/
 ├── wishindiary-api/              # FastAPI 后端、迁移、模型和测试
 │   ├── app/                      # core、features、ml、repositories、routers、services
 │   ├── migrations/               # Alembic 数据库迁移（含版本历史与回滚）
-│   ├── ml/menstrual_rf_model.skops
+│   ├── ml/                      # 本地生成的预测模型目录（*.skops 不入库）
 │   ├── scripts/                  # 本地配置、训练、模型检查、备份恢复、数据清理
 │   └── tests/
 ├── Wishindiary-web/              # Vue 3 前端
@@ -131,7 +131,7 @@ cd C:\path\to\WishinDiary\wishindiary-api
 ### 常见启动问题：模型版本警告
 
 如果日志出现 `InconsistentVersionWarning`，说明启动时使用的 Python 环境中的
-scikit-learn 版本与发布模型的训练版本不一致。请使用项目虚拟环境安装锁定依赖，
+scikit-learn 版本与当前模型的训练版本不一致（模型由本地训练生成）。请使用项目虚拟环境安装锁定依赖，
 不要直接使用系统 Python 启动：
 
 ```powershell
@@ -140,16 +140,16 @@ cd C:\path\to\WishinDiary
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir .\wishindiary-api --reload --host 127.0.0.1 --port 8000
 ```
 
-发布模型当前按 `requirements.txt` 中锁定的 scikit-learn 版本训练。若你有意升级
-scikit-learn，请重新训练模型、运行 `scripts\inspect_model.py`，并重新确认模型哈希。
+本地训练生成模型时按 `requirements.txt` 中锁定的 scikit-learn 版本进行。若你有意升级
+scikit-learn，请重新训练模型、运行 `scripts\inspect_model.py`，并同步更新 `MODEL_SHA256`。
 
-当前发布的模型由 **scikit-learn 1.5.2** 训练保存，除 1.5.2 外也已在 **1.9.0 + skops 0.11.0**
+当前 `requirements.txt` 锁定 **scikit-learn 1.5.2**；已在 **1.9.0 + skops 0.11.0**
 组合下实测：同一份模型两个版本加载与推理结果一致。使用方式二选一：
 
 - **官方默认（无警告）**：按 `requirements.txt` 安装（scikit-learn==1.5.2、skops==0.14.0）。
 - **自愿升级 1.9.0**：`pip install scikit-learn==1.9.0 skops==0.11.0`。推理正常，仅启动加载时打印
-  一条一次性的 `InconsistentVersionWarning`，可忽略。若升级后重训模型并发布新模型文件，
-  请同步更新 `MODEL_SHA256` 与本段说明。
+  一条一次性的 `InconsistentVersionWarning`，可忽略。若升级后重训模型，请同步更新
+  `MODEL_SHA256` 与本段说明。
 
 ### 3. 启动 API
 
@@ -182,9 +182,11 @@ powershell -ExecutionPolicy Bypass -File .\wishindiary-api\scripts\test_login.ps
 
 ## 机器学习模型
 
-仓库已提供 `wishindiary-api/ml/menstrual_rf_model.skops`。它使用固定随机种子的纯合成周期数据训练，不读取真实用户数据库。
+仓库**不附带预训练模型文件**（`*.skops` 已加入 .gitignore，不会入库）。模型由
+`scripts/train.py` 用固定随机种子的纯合成周期数据（或你自己的授权数据）生成到
+`wishindiary-api/ml/` 下，不读取真实用户数据库。
 
-模型信息和 SHA-256 位于 [MODEL_CARD.md](MODEL_CARD.md)。重新训练和检查：
+生成与检查模型：
 
 ```powershell
 cd C:\path\to\WishinDiary\wishindiary-api
@@ -192,7 +194,10 @@ cd C:\path\to\WishinDiary\wishindiary-api
 ..\.venv\Scripts\python.exe scripts/inspect_model.py
 ```
 
-重新训练后必须更新 `MODEL_SHA256`；生产环境不会加载哈希不匹配的模型。
+生成后 `wishindiary-api/ml/menstrual_rf_model.skops` 即被应用加载。开发环境若未生成模型，
+预测接口以"无模型基线预测"降级运行（日志有告警）；生产环境则拒绝启动。模型信息与 SHA-256
+约定见 [MODEL_CARD.md](MODEL_CARD.md)——重新训练后必须把产出的 hash 更新到 `MODEL_SHA256`，
+生产环境不会加载哈希不匹配的模型。
 
 ## 测试与质量门禁
 
@@ -237,15 +242,17 @@ npm audit 和前端构建。
 
 ## 演示与截图
 
-> 截图占位：首次 Release 前会把界面截图放入 `docs/demo/` 目录并在下方替换为图片链接。
-> 在线 Demo：为避免真实健康数据风险，本项目暂不提供公共在线 Demo；如需体验，请按上文 Docker Compose 在本机部署。
+以下截图使用合成数据生成，仅作界面演示（不含真实用户信息）：
 
-- 登录页（*待补充：`docs/demo/login.png`*）
-- 日历周期记录与预测（*待补充：`docs/demo/calendar.png`*）
-- 统计看板（*待补充：`docs/demo/dashboard.png`*）
-- 健康报告（*待补充：`docs/demo/report.png`*）
+![登录页](docs/demo/login.png)
 
-截图统一存放在 `docs/demo/`，命名规则以页面英文名为准（`login.png`、`calendar.png`、`dashboard.png`、`report.png`）。截图仅允许使用合成数据，不得包含真实用户信息。
+![日历周期记录与预测](docs/demo/calendar.png)
+
+![统计看板](docs/demo/dashboard.png)
+
+![健康报告](docs/demo/report.png)
+
+> 在线 Demo：为避免真实健康数据风险，本项目不提供公共在线 Demo；如需体验，请按上文 Docker Compose 在本机部署。
 
 ## 开源贡献
 请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，其中包含维护者名单与问题响应范围。发生不当行为或安全问题时的举报渠道见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) 与 [SECURITY.md](SECURITY.md)。

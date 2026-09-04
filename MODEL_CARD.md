@@ -18,14 +18,19 @@
 - 发布流水线计算 SHA-256，并通过 `MODEL_SHA256` 校验。
 - 记录训练代码版本、依赖锁文件、数据集许可证和评估切分策略。
 
-## 当前发布模型
+## 评估基准（v2，本地评估用，不入库）
 
-- 文件：`wishindiary-api/ml/menstrual_rf_model.skops`
-- 训练方式：`python scripts/train.py --synthetic-only`
-- 数据：固定随机种子的纯合成周期数据，不读取真实用户数据库
-- 模型版本：`cycle-rf-v1`
-- SHA-256：`6f01416b50834899aa60a803b5980ec9c1a25d9ed6f92d0a07559054756fc888`
-- 发布依赖：Python 3.12、NumPy 2.1.3、SciPy 1.18.1、scikit-learn 1.5.2、skops 0.14.0
+仓库**不附带预训练模型文件**（`*.skops` 已在 .gitignore 中排除）。当前本地评估基准为
+**cycle-rf-v2**，为对齐真实场景使用**经授权的真实周期数据**训练，仅供评估与复现对比，不随发行版分发：
+
+- 文件：`wishindiary-api/ml/menstrual_rf_model.skops`（本地生成，不入库）
+- 模型版本：`cycle-rf-v2`（10 维滑动窗口特征）
+- 训练方式：`python scripts/train.py --csv <授权数据>`（真实数据）或 `python scripts/train.py --synthetic-only`（纯合成数据）
+- SHA-256（当前 v2 评估基准）：`bd315ff749b13f37ba601f68c1e1a56a77c1dd507aa88e9d498fb052220ed3eb`
+- 评估依赖：Python 3.12、NumPy 2.1.3、SciPy 1.18.1、scikit-learn 1.5.2、skops 0.14.0
+
+发行版不附带模型文件。使用者按 [README.md](README.md) 用 `scripts/train.py` 自行生成模型，
+产出的 hash 即作为运行时的 `MODEL_SHA256`，仓库不对任何生成文件预设 hash。
 
 ## 已知限制
 

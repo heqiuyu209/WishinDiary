@@ -1,0 +1,84 @@
+# WishinDiary 生产 TLS 终止 Nginx 配置模板
+#
+# 部署位置：/etc/nginx/sites-available/wishindiary
+# 适用架构：Nginx 在边界终止 TLS（443），后端 API(Uvicorn 127.0.0.1:8000)
+#           与静态前端均只走内网 HTTP，证书私钥仅 Nginx 持有。
+# 详细方案见 docs/TLS_TERMINATION.md。
+#
+# 使用前必改项（搜索 diary.example.com 替换为真实域名）：
+#   - server_name diary.example.com
+#   - ssl_certificate / ssl_certificate_key 路径确认为 Certbot/自签证书位置
+
+# ---------- HTTP -> HTTPS 强制跳转 ----------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name diary.example.com;
+
+    # Let's Encrypt 校验路径（若使用 HTTP-01 验证需保留；否则可注释）
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ---------- HTTPS 站点（TLS 终止在此发生） ----------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name diary.example.com;
+
+    # TLS 证书与密钥（Certbot 会在此自动续期；私钥权限 600 root:root）
+    ssl_certificate     /etc/letsencrypt/live/diary.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/diary.example.com/privkey.pem;
+
+    # 仅启用现代 TLS 版本与安全套件（TLS 1.2 最低）
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # HSTS：强制浏览器仅走 HTTPS（首次生效后再逐步加大 max-age；includeSubDomains 需域名均支持 HTTPS）
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # 通用安全响应头
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+    # 前端静态资源
+    root /var/www/wishindiary;
+    index index.html;
+    client_max_body_size 1m;
+
+    # API 反向代理（后端只监听内网回环，TLS 已在 Nginx 终止）
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # 必须透传协议，Uvicorn --proxy-headers 依赖它生成正确的 HTTPS 链接/回调
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+    }
+
+    location /assets/ {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
+    }
+}

@@ -30,6 +30,7 @@ ENV/
 .ruff_cache/
 .coverage
 htmlcov/
+wishindiary-api/coverage.xml
 
 # Node.js / Vue
 node_modules/
@@ -59,10 +60,15 @@ Wishindiary-web/dist-ssr/
 *.pth
 *.onnx
 *.skops
-!wishindiary-api/ml/menstrual_rf_model.skops
+wishindiary-api/ml/model_evaluation_report.*
+wishindiary-api/ml/monitoring_logs/
 data/
 exports/
 logs/
+
+# 本地内部/敏感数据（仅本地，绝不入库）
+# 真实临床数据 CSV（Fehring 2012 Marquette NFP 等）
+FedCycleData*.csv
 
 # IDE / System Files
 .vscode/
