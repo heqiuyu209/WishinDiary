@@ -59,8 +59,7 @@ BACKEND_MODE=local DB_HOST=127.0.0.1 DB_PORT=3306 DB_USER=wishin_app DB_PASSWORD
           sleep 86400
         done
     volumes:
-      - backup_data:/backups
-      - ./backups:/backups:ro   # 或挂宿主机目录持久化
+      - ./backups:/backups      # 挂宿主机目录可写挂载，容器将备份写入该目录持久化
     depends_on:
       - db
 ```

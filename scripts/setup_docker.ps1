@@ -15,10 +15,10 @@ if (-not (Test-Path -LiteralPath $modelPath)) {
     Push-Location $repoRoot
     try {
         if (Test-Path ".\.venv\Scripts\python.exe") {
-            & ".\.venv\Scripts\python.exe" "scripts\train.py" --synthetic-only
+            & ".\.venv\Scripts\python.exe" "wishindiary-api\scripts\train.py" --synthetic-only
             $trainExit = $LASTEXITCODE
         } elseif (Get-Command python -ErrorAction SilentlyContinue) {
-            & python "scripts\train.py" --synthetic-only
+            & python "wishindiary-api\scripts\train.py" --synthetic-only
             $trainExit = $LASTEXITCODE
         } else {
             $trainExit = -1
@@ -34,8 +34,8 @@ if (-not (Test-Path -LiteralPath $modelPath)) {
         Write-Host "模型 ${modelPath} 不存在，且本地未生成成功。" -ForegroundColor Red
         Write-Host "请手动训练后重试本脚本：" -ForegroundColor Yellow
         Write-Host "  cd $repoRoot"
-        Write-Host "  .\.venv\Scripts\python.exe scripts\train.py --synthetic-only"
-        Write-Host "（仓库不附带预训练模型，模型一律由 scripts/train.py 用合成数据本地生成。）"
+        Write-Host "  .\.venv\Scripts\python.exe wishindiary-api\scripts\train.py --synthetic-only"
+        Write-Host "（仓库不附带预训练模型，模型一律由 wishindiary-api/scripts/train.py 用合成数据本地生成。）"
         Write-Host "已跳过生成 Docker 配置，未修改 .env。"
         exit 0
     }

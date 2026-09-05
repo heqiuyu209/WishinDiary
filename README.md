@@ -67,7 +67,7 @@ WishinDiary/
 cd C:\path\to\WishinDiary
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r .\wishindiary-api\requirements.txt
-.\.venv\Scripts\python.exe scripts\train.py --synthetic-only
+.\.venv\Scripts\python.exe .\wishindiary-api\scripts\train.py --synthetic-only
 ```
 
 然后生成 Docker 配置并启动：
@@ -91,7 +91,7 @@ docker compose ps
 cd /path/to/WishinDiary
 python3 -m venv .venv
 .venv/bin/pip install -r wishindiary-api/requirements.txt
-.venv/bin/python scripts/train.py --synthetic-only
+.venv/bin/python wishindiary-api/scripts/train.py --synthetic-only
 ```
 
 然后生成 Docker 配置并启动：
@@ -206,7 +206,7 @@ powershell -ExecutionPolicy Bypass -File .\wishindiary-api\scripts\test_login.ps
 ## 机器学习模型
 
 仓库**不附带预训练模型文件**（`*.skops` 已加入 .gitignore，不会入库）。模型由
-`scripts/train.py` 用固定随机种子的纯合成周期数据（或你自己的授权数据）生成到
+`wishindiary-api/scripts/train.py` 用固定随机种子的纯合成周期数据（或你自己的授权数据）生成到
 `wishindiary-api/ml/` 下，不读取真实用户数据库。
 
 生成与检查模型：
@@ -265,7 +265,8 @@ npm audit 和前端构建。
 
 ## 功能演示
 
-> 说明：仓库不附带截图文件（原演示图含 AI 生成水印，已移除以避免误导）。如需体验界面，请按上文的 Docker Compose 或本地开发章节在本机部署，以下功能可直接体验：
+> 说明：仓库暂未提供界面截图。如需体验界面，请按上文的 Docker Compose 
+> 或本地开发章节在本机部署，以下功能可直接体验，后续会更新界面截图（现在感觉界面做得不好看）：
 
 - **登录/注册**：注册账号登录后凭 HttpOnly Cookie 保持会话。
 - **日历周期记录与预测**：记录经期开始/结束日期，基于随机森林模型生成周期预测。

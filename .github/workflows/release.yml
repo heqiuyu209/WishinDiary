@@ -6,7 +6,7 @@
 # 每次正式发布应同步完成：
 #   1. CHANGELOG 更新；
 #   2. 数据库迁移版本号确认（alembic heads）；
-#   3. 模型按 scripts/train.py 用合成数据本地生成，并核对 MODEL_CARD.md 评估基准（仓库不附带模型文件）。
+#   3. 模型按 wishindiary-api/scripts/train.py 用合成数据本地生成，并把该模型自身哈希写入 MODEL_SHA256（仓库不附带模型文件）。
 name: Release
 
 on:
@@ -47,6 +47,20 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: wishindiary-api/requirements-dev.txt
+
+      - name: Set up Node.js 22.18
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.18"
+          cache: npm
+          cache-dependency-path: Wishindiary-web/package-lock.json
 
       - name: Verify backend build & tests
         working-directory: ./wishindiary-api

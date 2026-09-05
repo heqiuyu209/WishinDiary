@@ -59,7 +59,7 @@ git ls-files | Select-String -Pattern '(^|/)(\.env|node_modules|\.venv|\.idea|\.
 1. **冻结范围**：确认 CHANGELOG 的 `[Unreleased]` 已整理，合并所有计划进入 v1.0.0 的 PR。
 2. **核对迁移与模型**
    - 运行 `cd wishindiary-api && python -m alembic heads`，确认只有一个 head，并把 head 编号记录进 Release 说明。
-   - 运行 `python scripts/inspect_model.py`，确认本地生成模型的 `MODEL_SHA256` 与 `MODEL_CARD.md` 记录的评估基准哈希一致（模型不随发行版附送）。
+   - 运行 `python scripts/inspect_model.py` 生成并核对模型后，把该合成模型自己的 `MODEL_SHA256` 写入配置；本地生成模型的哈希不必等于 `MODEL_CARD.md` 中真实数据评估基准的哈希（发行版不预设、不附带固定哈希）。
 3. **更新 CHANGELOG**：新建 `[1.0.0] - <日期>` 小节，将 Unreleased 内容移入并补充"升级说明"段（见下方模板）。
 4. **运行全部自动检查**（见本文档开头），确保后端测试、Ruff、前端构建、npm audit 与 `docker compose config` 全部通过。
 5. **打标签并推送**：

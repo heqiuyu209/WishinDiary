@@ -78,7 +78,7 @@ wishindiary-api/
 
 ### 3.2 Schema 层（`app/schemas/`）
 
-- 请求/响应均为 Pydantic 模型，禁止裸 dict 返回（见 ADR-002 与 P1-7）。
+- 请求/响应统一为 Pydantic 模型；认证路由等个别边界端点（如注册/登录/登出）按 HTTP 语义直接返回裸 dict，其余禁止裸 dict 返回（见 ADR-002 与 P1-7）。
 - 统一错误结构定义于 `common.py`：
 
 ```json
@@ -141,7 +141,7 @@ with transaction() as connection:      # 成功自动 commit，异常自动 roll
 ## 7. API 版本与健康检查
 
 - 业务接口统一挂 `/api/v1` 前缀（auth/cycles/daily_logs/prediction/stats/report/user_data）。
-- `/api/health` 保留为无版本前缀的探活端点（不做 DB 强依赖语义）。
+- `/api/health` 保留为无版本前缀的探活端点，但会连接数据库做连通性探测（DB 不可用时返回 503），并非"与 DB 无关"。
 - 前端 `VITE_API_BASE_URL=http://localhost:8000`，请求路径形如 `/api/v1/auth/login`、`/api/v1/log_start`。
 
 ## 8. 数据库迁移
