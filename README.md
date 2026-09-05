@@ -205,7 +205,7 @@ powershell -ExecutionPolicy Bypass -File .\wishindiary-api\scripts\test_login.ps
 
 ## 机器学习模型
 
-仓库**不附带预训练模型文件**（`*.skops` 已加入 .gitignore，不会入库）。模型由
+仓库**不附带预训练模型文件**。模型由
 `wishindiary-api/scripts/train.py` 用固定随机种子的纯合成周期数据（或你自己的授权数据）生成到
 `wishindiary-api/ml/` 下，不读取真实用户数据库。
 
