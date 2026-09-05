@@ -8,6 +8,7 @@ from alembic.config import Config
 
 from app.main import app
 from app.core.config import settings
+from app.core.database_url import build_database_url
 from app.core import database
 
 TEST_DB_NAME = "wishindiary_test_db"
@@ -23,12 +24,8 @@ def _alembic_upgrade_to_head(test_db_name: str) -> None:
     数据库结构只维护在 migrations/versions/ 中（收敛自 schema.sql 与旧 conftest），
     Alembic 会记录版本号，保证本地 Docker 与 pytest 测试建表一致。
     """
-    url = (
-        f"mysql+pymysql://{settings.DB_USER}:{settings.DB_PASSWORD}"
-        f"@{settings.DB_HOST}:{settings.DB_PORT}/{test_db_name}?charset=utf8mb4"
-    )
     cfg = Config(str(ALEMBIC_INI))
-    cfg.set_main_option("sqlalchemy.url", url)
+    cfg.attributes["sqlalchemy_url"] = build_database_url(settings, test_db_name)
     command.upgrade(cfg, "head")
 
 

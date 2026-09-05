@@ -15,6 +15,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 from app.core.config import settings
+from app.core.database_url import build_database_url
 
 MIGRATION_TEST_DB = "wishindiary_migration_test_db"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -31,12 +32,8 @@ EXPECTED_TABLES = {
 
 
 def _alembic_cfg(db_name: str) -> Config:
-    url = (
-        f"mysql+pymysql://{settings.DB_USER}:{settings.DB_PASSWORD}"
-        f"@{settings.DB_HOST}:{settings.DB_PORT}/{db_name}?charset=utf8mb4"
-    )
     cfg = Config(str(ALEMBIC_INI))
-    cfg.set_main_option("sqlalchemy.url", url)
+    cfg.attributes["sqlalchemy_url"] = build_database_url(settings, db_name)
     return cfg
 
 

@@ -15,7 +15,8 @@ Windows PowerShell：
 ```powershell
 cd C:\path\to\WishinDiary
 powershell -ExecutionPolicy Bypass -File .\scripts\setup_docker.ps1
-docker compose config
+# 编辑 .env：HTTP 调试设置 ALLOW_INSECURE_HTTP=true，填写实际 CORS_ORIGINS
+docker compose config --quiet
 docker compose up -d --build
 docker compose ps
 ```
@@ -29,14 +30,44 @@ chmod 600 .env
 openssl rand -base64 32
 # 将两个不同的随机密码和一个至少 32 字符的 SECRET_KEY 写入 .env
 # 将 CORS_ORIGINS 改为实际 HTTPS 域名
-docker compose config
+docker compose config --quiet
 docker compose up -d --build
 docker compose ps
 ```
 
-默认只有本机能访问 Web `http://127.0.0.1:8080` 和 API
-`http://127.0.0.1:8000/api/health`。不要把 MySQL 3306 或 Uvicorn 8000
-直接暴露到公网。
+Web 默认监听 `0.0.0.0:8080`，通过 `http://服务器IP:8080` 访问前需放行安全组和防火墙的 TCP 8080。
+API 仅映射到宿主机 `127.0.0.1:8000`，MySQL 不对外映射；网页通过前端 Nginx 的 `/api/` 访问后端。
+若宿主机通过 Nginx 等代理提供 HTTPS，可设置 `WEB_BIND_HOST=127.0.0.1`。
+
+#### HTTP 的 IP:端口调试
+
+在根目录 `.env` 中设置（将示例 IP 换成服务器地址）：
+
+```dotenv
+WEB_BIND_HOST=0.0.0.0
+WEB_PORT=8080
+ALLOW_INSECURE_HTTP=true
+CORS_ORIGINS=http://203.0.113.10:8080
+```
+
+Docker 后端仍使用 `ENVIRONMENT=production`。`ALLOW_INSECURE_HTTP=true` 仅允许通过 HTTP 使用认证 Cookie，不改变模型、密钥等生产校验。
+HTTP 会明文传输账号与记录，只适合调试。配置 HTTPS 后将此项改回 `false`，并更新 `CORS_ORIGINS`。
+
+更新已有部署后执行：
+
+```bash
+docker compose config --quiet
+docker compose up -d --build backend frontend
+```
+
+保留现有 `.env` 中的数据库密码、密钥和模型哈希，不需要重建数据库卷。
+若登录接口成功后仍回到登录页，检查访问协议与 `ALLOW_INSECURE_HTTP` 是否匹配，以及浏览器的 `/api/v1/auth/session` 请求是否携带 Cookie。
+
+#### 数据库密码包含特殊字符
+
+`migrations/env.py` 使用 SQLAlchemy URL 对象，`DB_PASSWORD` 填原始密码即可，包含 `@`、`%`、`/` 等字符时无需手动 URL 编码。
+在 Compose 的 `.env` 中，密码若含 `$` 或 `#`，用单引号包住值，避免变量插值或注释解析。
+代码中传入迁移地址可用 `config.attributes["sqlalchemy_url"]`；手写 `alembic.ini` 的 URL 仍需 URL 编码，且其中的 `%` 必须写为 `%%`。
 
 > 关于客户端 IP 与可信代理：日志、登录限流都会用到客户端 IP。
 > - systemd + Nginx 部署（见下文方案二）已显式启用

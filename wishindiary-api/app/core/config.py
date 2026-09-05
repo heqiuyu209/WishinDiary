@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # 长期刷新令牌有效期（天）：access token 过期后用于无感续期；
     # 退出登录或刷新轮换时服务端撤销（见 refresh_tokens 表）。
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    # 仅用于尚未配置 HTTPS 的 HTTP 调试；正式 HTTPS 部署保持 false。
+    ALLOW_INSECURE_HTTP: bool = False
 
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
     MODEL_PATH: Path = PROJECT_ROOT / "ml" / "menstrual_rf_model.skops"
@@ -56,6 +58,10 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore"
     )
+
+    @property
+    def cookie_secure(self) -> bool:
+        return self.ENVIRONMENT == "production" and not self.ALLOW_INSECURE_HTTP
 
     @property
     def cors_origins(self) -> list[str]:

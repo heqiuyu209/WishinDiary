@@ -61,10 +61,13 @@ $lines = @(
     "CORS_ORIGINS=http://localhost:5173,http://localhost:8080",
     "MODEL_SHA256=$modelHash",
     "API_PORT=8000",
-    "WEB_PORT=8080"
+    "WEB_PORT=8080",
+    "WEB_BIND_HOST=0.0.0.0",
+    "ALLOW_INSECURE_HTTP=false"
 )
 
 Set-Content -LiteralPath $envPath -Value ($lines -join "`n") -Encoding utf8
 Write-Host "Docker 配置已生成：$envPath" -ForegroundColor Green
 Write-Host "已自动生成数据库密码、JWT 密钥并写入模型 SHA-256。请勿提交 .env。"
 Write-Host "下一步：docker compose up -d --build"
+Write-Host "若通过 HTTP 的 IP:端口调试，请先在 .env 设置 ALLOW_INSECURE_HTTP=true；HTTPS 部署保持 false。"

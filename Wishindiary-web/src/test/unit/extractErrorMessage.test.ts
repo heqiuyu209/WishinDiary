@@ -19,6 +19,16 @@ function makeError(
 }
 
 describe('extractApiErrorMessage', () => {
+  it('通用 422 提示下优先显示具体字段要求', () => {
+    const err = makeError(422, {
+      error: {
+        code: 'validation_error',
+        message: '请求参数校验失败',
+        detail: [{ loc: ['body', 'password'], type: 'string_too_short', ctx: { min_length: 8 } }],
+      },
+    });
+    expect(extractApiErrorMessage(err, 'fallback')).toBe('密码至少需要 8 个字符');
+  });
   it('提取后端统一 error.message', () => {
     const err = makeError(422, {
       error: { code: 'VALIDATION_ERROR', message: '日志格式非法' },

@@ -57,7 +57,9 @@ WishinDiary/
 
 ## Docker Compose（推荐）
 
-容器默认只绑定本机地址：Web `127.0.0.1:8080`，API `127.0.0.1:8000`，不会直接暴露到公网。
+Web 默认监听 `0.0.0.0:8080`，云服务器可通过 IP:端口访问（需放行安全组与防火墙的 TCP 8080）。API 仍只绑定 `127.0.0.1:8000`，MySQL 不映射宿主机端口；网页的 `/api/` 请求由前端 Nginx 转发。
+
+Docker 中认证 Cookie 默认要求 HTTPS。通过 HTTP 的 IP:端口调试时，先在根目录 `.env` 设置 `ALLOW_INSECURE_HTTP=true`，并将 `CORS_ORIGINS` 设为实际访问地址，例如 `http://服务器IP:8080`。正式 HTTPS 部署恢复为 `false`；宿主机有反向代理时可设 `WEB_BIND_HOST=127.0.0.1`，仅由代理提供公网入口。
 
 ### Windows PowerShell
 
@@ -75,6 +77,7 @@ py -3.12 -m venv .venv
 ```powershell
 cd C:\path\to\WishinDiary
 powershell -ExecutionPolicy Bypass -File .\scripts\setup_docker.ps1
+# 编辑 .env；本地 HTTP 调试设置 ALLOW_INSECURE_HTTP=true
 docker compose up -d --build
 docker compose ps
 ```
@@ -101,6 +104,8 @@ cd /path/to/WishinDiary
 cp .env.example .env
 openssl rand -base64 32
 # 编辑 .env，填写 DB_PASSWORD、DB_ROOT_PASSWORD、SECRET_KEY
+# 将 sha256sum wishindiary-api/ml/menstrual_rf_model.skops 的哈希填入 MODEL_SHA256
+# HTTP 调试设置 ALLOW_INSECURE_HTTP=true，并填写实际 CORS_ORIGINS
 docker compose up -d --build
 docker compose ps
 ```

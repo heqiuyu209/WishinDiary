@@ -66,12 +66,12 @@ def _revoke_refresh_token(connection, refresh_token_id: int) -> None:
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
-    """统一签发认证 Cookie：均 HttpOnly + SameSite=Lax，生产环境追加 Secure。"""
+    """认证 Cookie 均为 HttpOnly + SameSite=Lax，Secure 由部署配置控制。"""
     response.set_cookie(
         "access_token",
         access_token,
         httponly=True,
-        secure=settings.ENVIRONMENT == "production",
+        secure=settings.cookie_secure,
         samesite="lax",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
@@ -80,7 +80,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         _REFRESH_COOKIE,
         refresh_token,
         httponly=True,
-        secure=settings.ENVIRONMENT == "production",
+        secure=settings.cookie_secure,
         samesite="lax",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         path="/",

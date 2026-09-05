@@ -30,6 +30,7 @@ services:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
       ENVIRONMENT: production
+      ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-false}
       DB_HOST: db
       DB_PORT: 3306
       DB_USER: ${DB_USER:?DB_USER is required}
@@ -61,7 +62,7 @@ services:
     container_name: wishindiary-web
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${WEB_PORT:-8080}:80"
+      - "${WEB_BIND_HOST:-0.0.0.0}:${WEB_PORT:-8080}:80"
     depends_on:
       backend:
         condition: service_healthy
