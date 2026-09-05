@@ -18,7 +18,7 @@
 
 | 层级 | 当前做法 |
 | --- | --- |
-| GitHub Actions | 使用 major/minor 版本标签（`@v4` / `@v5` / `@v3` / `@0.24.0`） |
+| GitHub Actions | 使用 major/minor 版本标签（`@v4` / `@v5` / `@v3` / `@v0.24.0`） |
 | Actions 自动更新 | `.github/dependabot.yml` 已启用 `github-actions` 生态，每周扫描 |
 | npm 依赖 | 前端 `package-lock.json` 已提交，Dependabot 每周更新 |
 | Python 依赖 | 后端 `requirements.txt` / `requirements-dev.txt` 已固定版本号，Dependabot 每周更新 |
