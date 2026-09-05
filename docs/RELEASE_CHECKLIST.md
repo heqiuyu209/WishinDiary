@@ -96,7 +96,7 @@ git ls-files | Select-String -Pattern '(^|/)(\.env|node_modules|\.venv|\.idea|\.
 > - 支持环境：Python 3.12、Node.js 22.18+、MySQL 8.0+、Docker Compose。
 > - 数据兼容：依赖数据库迁移，升级前请先备份（`scripts/backup_database.sh`）。
 
-> 注意：本地生成模型后请用 `scripts/inspect_model.py` 校正 `MODEL_SHA256`（Docker 部署由 `setup_docker.ps1` 自动写入）；校验值用于与 `MODEL_CARD.md` 评估基准比对，避免误用旧模型。
+> 注意：本地生成模型后请用 `scripts/inspect_model.py` 校正 `MODEL_SHA256`（Docker 部署由 `setup_docker.ps1` 自动写入）；校验值用于校验当前本地模型的完整性，不与 `MODEL_CARD.md` 评估基准比对。
 
 ## 发布版本规划
 

@@ -37,7 +37,7 @@ if (-not (Test-Path -LiteralPath $modelPath)) {
         Write-Host "  .\.venv\Scripts\python.exe wishindiary-api\scripts\train.py --synthetic-only"
         Write-Host "（仓库不附带预训练模型，模型一律由 wishindiary-api/scripts/train.py 用合成数据本地生成。）"
         Write-Host "已跳过生成 Docker 配置，未修改 .env。"
-        exit 0
+        exit 1
     }
 }
 
