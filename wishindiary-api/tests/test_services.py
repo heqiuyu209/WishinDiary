@@ -209,7 +209,7 @@ class TestPredictionService:
         from app.services import prediction_service as mod
 
         def _raise_value_error(user_id):
-            raise ValueError("历史数据不足，无法提取特征")
+            raise ValueError("internal/path.py:42 SQL SELECT secret FROM users")
 
         monkeypatch.setattr(mod, "get_latest_features_for_user", _raise_value_error)
 
@@ -217,4 +217,5 @@ class TestPredictionService:
 
         result = PredictionService().get_prediction(1)
         assert result["status"] == "insufficient_data"
-        assert "预测" in result["message"] or "数据不足" in result["message"]
+        assert result["message"] == "数据不足：请至少记录 4 个完整周期后再试"
+        assert "internal/path.py" not in result["message"]

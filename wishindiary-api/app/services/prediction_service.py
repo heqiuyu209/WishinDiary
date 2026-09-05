@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 # 医学合理范围（与特征工程保持一致的宽松口径）
 _MIN_PLAUSIBLE_LENGTH = 15
 _MAX_PLAUSIBLE_LENGTH = 45
+_INSUFFICIENT_DATA_MESSAGE = "数据不足：请至少记录 4 个完整周期后再试"
 
 
 def build_data_quality_warnings(features: dict) -> list[str]:
@@ -83,8 +84,13 @@ class PredictionService:
             features_dict, last_start_date, n_complete_cycles, user_mean = (
                 get_latest_features_for_user(user_id)
             )
-        except ValueError as ve:
-            return {"status": "insufficient_data", "message": str(ve), "prediction": None}
+        except ValueError:
+            # 不把异常文本写入响应；底层异常可能包含实现、路径或数据库细节。
+            return {
+                "status": "insufficient_data",
+                "message": _INSUFFICIENT_DATA_MESSAGE,
+                "prediction": None,
+            }
         except Exception:
             logger.exception("Feature extraction failed for user_id=%s", user_id)
             raise AppError(500, "internal_error", "特征提取失败，请稍后重试")
