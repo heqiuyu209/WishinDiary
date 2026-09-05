@@ -7,6 +7,16 @@ export function uniqueUsername(): string {
   return `e2e_${Date.now()}`;
 }
 
+/** 返回 V-Calendar 在当前 E2E 英文区域设置下使用的日期无障碍标签。 */
+export function vCalendarDayLabel(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+}
+
 /** 在浏览器地址栏可直接访问的登录页完成注册与登录，返回用户名。 */
 export async function registerAndLogin(page: Page, username: string): Promise<void> {
   await page.goto('/login');
@@ -21,11 +31,4 @@ export async function registerAndLogin(page: Page, username: string): Promise<vo
   await page.getByRole('button', { name: '进入系统' }).click();
 
   await expect(page).toHaveURL(/\/calendar/, { timeout: 15_000 });
-}
-
-/** 生成 v-calendar 日期格按钮的 aria-label（date-fns 格式 "Wed Sep 2 2026"）。 */
-export function vCalendarDayLabel(d: Date): string {
-  const wd = d.toLocaleDateString('en-US', { weekday: 'short' });
-  const mon = d.toLocaleDateString('en-US', { month: 'short' });
-  return `${wd} ${mon} ${d.getDate()} ${d.getFullYear()}`;
 }

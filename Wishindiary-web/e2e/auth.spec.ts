@@ -6,8 +6,8 @@ test('注册新用户并登录跳转打卡页', async ({ page }) => {
   await registerAndLogin(page, username);
 
   // 登录后停留在打卡页，导航与用户身份可见。
-  await expect(page.getByText('WishinDiary').first()).toBeVisible();
-  await expect(page.getByText(username)).toBeVisible();
+  await expect(page.getByRole('button', { name: /WishinDiary/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: new RegExp(username) })).toBeVisible();
 });
 
 test('未登录访问受保护页面被重定向到登录页', async ({ page }) => {

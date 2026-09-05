@@ -4,11 +4,11 @@ import { registerAndLogin, uniqueUsername, vCalendarDayLabel } from './helpers';
 test('记录经期开始并结束一个周期', async ({ page }) => {
   await registerAndLogin(page, uniqueUsername());
 
-  const today = new Date();
-  const todayLabel = vCalendarDayLabel(today);
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - 1);
 
-  // 选中今天并标记开始。
-  await page.getByRole('button', { name: todayLabel }).click();
+  // 从昨天开始，随后用今天结束，避免重复点击已选日期将值切换为空。
+  await page.getByRole('button', { name: vCalendarDayLabel(startDate) }).click();
   await page.getByRole('button', { name: '标记开始' }).click();
 
   // 开始成功后出现系统预估/历史平均区间预览。
@@ -16,8 +16,8 @@ test('记录经期开始并结束一个周期', async ({ page }) => {
     timeout: 15_000,
   });
 
-  // 再次选中今天作为结束日期，提交标记结束。
-  await page.getByRole('button', { name: todayLabel }).click();
+  // 选择今天作为结束日期，提交标记结束。
+  await page.locator('.vc-day.is-today [role="button"]').click();
   await page.getByRole('button', { name: '标记结束' }).click();
 
   // 结束成功后进入已关闭区间的可清空预览。
