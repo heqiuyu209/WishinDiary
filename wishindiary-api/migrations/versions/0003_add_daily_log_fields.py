@@ -55,9 +55,13 @@ def upgrade() -> None:
     op.create_check_constraint(
         "chk_daily_sleep_quality", "daily_logs", "sleep_quality BETWEEN 0 AND 3"
     )
+    op.create_check_constraint(
+        "chk_daily_symptom_levels", "daily_logs", "JSON_VALID(symptom_levels)"
+    )
 
 
 def downgrade() -> None:
+    op.drop_constraint("chk_daily_symptom_levels", "daily_logs", type_="check")
     op.drop_constraint("chk_daily_sleep_quality", "daily_logs", type_="check")
     op.drop_constraint("chk_daily_sleep_duration", "daily_logs", type_="check")
     op.drop_column("daily_logs", "symptom_levels")
