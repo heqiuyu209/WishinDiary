@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.database import get_db_connection
 from app.core.audit import audit
 from app.schemas.auth import LoginRequest, RegisterRequest
+from app.repositories.cycle_repository import insert_cycle, recalculate_cycle_lengths
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 logger = logging.getLogger(__name__)
@@ -204,9 +205,24 @@ def register(req: RegisterRequest):
                 (req.username, hashed_password)
             )
             new_user_id = int(cursor.lastrowid)
+            # 可选补录：新用户注册时写入最近 3~4 次经期开始日期（已由 RegisterRequest
+            # 校验：禁未来 / 去重 / 至少 2 个 / 相邻间隔 15~60 天 / 升序）。
+            # ≥2 个日期即可构成至少 1 个完整周期，使新用户立即获得基础统计量与预测区间，
+            # 绕过"至少 4 个完整周期"的 ML 预测门槛。
+            # 补录日期不写入任何日志（审计只记录 username / user_id，敏感日期不外泄）。
+            if req.period_start_dates:
+                insert_cycle(cursor, new_user_id, req.period_start_dates[0])
+                for start_date in req.period_start_dates[1:]:
+                    insert_cycle(cursor, new_user_id, start_date)
+                recalculate_cycle_lengths(cursor, new_user_id)
         connection.commit()
         audit("auth.register", actor_user_id=new_user_id, username=req.username, success=True)
-        return {"status": "success", "message": "注册成功", "user_id": new_user_id}
+        return {
+            "status": "success",
+            "message": "注册成功",
+            "user_id": new_user_id,
+            "period_dates_recorded": len(req.period_start_dates),
+        }
     except pymysql.err.IntegrityError:
         if connection is not None:
             connection.rollback()

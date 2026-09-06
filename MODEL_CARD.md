@@ -11,6 +11,7 @@
 ## 数据来源
 
 开源发布版必须使用经授权的公开数据或纯合成数据。禁止将真实用户周期、日记、同房记录或任何可识别个人信息训练后提交到仓库。
+官方随 Release 发布的演示基线模型为**纯合成数据**训练，绝不包含任何真实个人数据。
 
 ## 安全发布要求
 
@@ -18,19 +19,26 @@
 - 训练后由 `scripts/inspect_model.py` 计算 SHA-256，运行时通过 `MODEL_SHA256` 校验（development 环境下可留空跳过校验）。
 - 记录训练代码版本、依赖锁文件、数据集许可证和评估切分策略。
 
-## 评估基准（v2，本地评估用，不入库）
+## 官方预训练模型（演示基线 Demo Baseline）
 
-仓库**不附带预训练模型文件**（`*.skops` 已在 .gitignore 中排除）。当前本地评估基准为
-**cycle-rf-v2**，为对齐真实场景使用**经授权的真实周期数据**训练，仅供评估与复现对比，不随发行版分发：
+为满足开箱即用，项目通过 **GitHub Release 资产**发布一份**纯合成数据训练**的演示基线模型。
+模型文件 `*.skops` 不进入 Git 历史（见 .gitignore 与上方安全发布要求），仅随 Release 提供下载。
+它是新部署的默认底座：下载后校验 SHA-256 并填入 `MODEL_SHA256` 即可被应用加载。
 
-- 文件：`wishindiary-api/ml/menstrual_rf_model.skops`（本地生成，不入库）
 - 模型版本：`cycle-rf-v2`（10 维滑动窗口特征）
-- 训练方式：`python scripts/train.py --csv <授权数据>`（真实数据）或 `python scripts/train.py --synthetic-only`（纯合成数据）
-- SHA-256（当前 v2 评估基准）：`bd315ff749b13f37ba601f68c1e1a56a77c1dd507aa88e9d498fb052220ed3eb`
-- 评估依赖：Python 3.12、NumPy 2.1.3、SciPy 1.18.1、scikit-learn 1.5.2、skops 0.14.0
+- 训练数据：**纯合成数据**（`python scripts/train.py --synthetic-only`），不读取真实用户数据库；共 210 个样本、30 个模拟用户
+- 离线评估（仅供演示参考，**不宣称任何真实预测准确率**）：MAE ≈ 1.94 天、RMSE ≈ 2.35 天
+- SHA-256（官方演示基线）：`11205ede0e546fa32504d32d05dc7f34e3e0f5caca2a9fcfa0f723e265203438`
+- 训练依赖（锁版本）：Python 3.12、NumPy 2.1.3、SciPy 1.18.1、scikit-learn 1.5.2、skops 0.14.0
+- 训练脚本提交：`05acee7`（`fix(deploy): support HTTP setup and reliable authentication`）；后续由 `.github/workflows/release.yml` 内 `--synthetic-only` 生成并作为 Release 资产发布
 
-发行版不附带模型文件。使用者按 [README.md](README.md) 用 `scripts/train.py` 自行生成模型，
-产出的 hash 即作为运行时的 `MODEL_SHA256`，仓库不对任何生成文件预设 hash。
+> 校验方式：对下载的 `.skops` 执行 `sha256sum`，结果应等于上述 SHA-256；将哈希写入 `.env` 的 `MODEL_SHA256`（development 环境可留空跳过校验，生产环境强制校验）。
+
+> **免责声明**：该演示基线模型仅用于开箱即用的功能演示与流程打通，**不宣称任何真实预测准确率**。如需上线，请使用经授权的真实/私有数据按 [README.md](README.md) 本地重新训练并更新 `MODEL_SHA256`。
+
+## 历史内部评估基准（不入库，仅追溯）
+
+早期本地评估基准曾使用**经授权的真实周期数据**（Fehring 2012 Marquette NFP，126 用户、1204 样本，SHA-256 `bd315ff749b13f37ba601f68c1e1a56a77c1dd507aa88e9d498fb052220ed3eb`）训练，仅供内部评估与复现对比，**不随发行版分发、不进入仓库**。该真实数据模型已从本地默认模型位置移除，当前 `wishindiary-api/ml/` 中的默认模型为上方「官方演示基线」。
 
 ## 已知限制
 

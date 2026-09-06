@@ -33,6 +33,8 @@ export interface LoginRequest {
 export interface RegisterRequest {
   username: string;
   password: string;
+  /** 可选：注册时补录最近 2~4 个经期开始日期（升序、不重复、间隔 15~60 天、不晚于今天） */
+  period_start_dates?: string[];
 }
 
 export interface LoginResponse extends StatusResponse {
@@ -42,6 +44,8 @@ export interface LoginResponse extends StatusResponse {
 
 export interface RegisterResponse extends StatusResponse {
   user_id?: number | null;
+  /** 本次注册补录写入的经期开始日期数量 */
+  period_dates_recorded?: number | null;
 }
 
 export interface SessionResponse extends StatusResponse {

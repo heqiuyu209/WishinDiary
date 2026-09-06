@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '../store';
 import { getSessionApi, loginApi, registerApi } from '../api';
 import { extractApiErrorMessage } from '../../../shared/api/httpClient';
+import { formatDate, today } from '../../../shared/utils/date';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -14,6 +15,34 @@ const passwordInput = ref('');
 const message = ref('');
 const errorMsg = ref('');
 const isSubmitting = ref(false);
+
+// --- 注册时可选补录最近经期开始日期（加速个性化预测）---
+const showBackfill = ref(false);
+const periodDates = ref<string[]>(['', '']);
+const todayStr = formatDate(today());
+const MAX_BACKFILL_DATES = 4;
+
+const toggleBackfill = () => {
+  showBackfill.value = !showBackfill.value;
+  if (showBackfill.value && periodDates.value.length === 0) {
+    periodDates.value = ['', ''];
+  }
+};
+
+const addPeriodDate = () => {
+  if (periodDates.value.length < MAX_BACKFILL_DATES) periodDates.value.push('');
+};
+
+const removePeriodDate = (index: number) => {
+  periodDates.value.splice(index, 1);
+};
+
+/** 收集补录日期：去空、去重、升序、剔除未来日期；不足 1 个时返回空数组。 */
+const collectBackfillDates = (): string[] => {
+  const cleaned = periodDates.value.map((d) => d.trim()).filter(Boolean);
+  const pastOrToday = cleaned.filter((d) => d <= todayStr);
+  return [...new Set(pastOrToday)].sort();
+};
 
 const validateInput = (): string => {
   const username = usernameInput.value;
@@ -29,6 +58,10 @@ const validateInput = (): string => {
   if (isRegistering.value && [...password].length < 8) return '密码至少需要 8 个字符';
   if (isRegistering.value && new TextEncoder().encode(password).length > 72) {
     return '密码过长：最多 72 个 UTF-8 字节，中文和表情会占用多个字节';
+  }
+  if (isRegistering.value && showBackfill.value) {
+    const backfill = collectBackfillDates();
+    if (backfill.length === 1) return '补录经期开始日期至少需要 2 个（才能构成完整周期），无需补录请收起该步骤';
   }
   return '';
 };
@@ -73,12 +106,20 @@ const handleLogin = async () => {
 
 const handleRegister = async () => {
   try {
-    await registerApi({
+    const backfillDates = collectBackfillDates();
+    const res = await registerApi({
       username: usernameInput.value,
       password: passwordInput.value,
+      ...(backfillDates.length ? { period_start_dates: backfillDates } : {}),
     });
-    message.value = '注册成功，请直接登录！';
+    const recorded = res.data?.period_dates_recorded ?? 0;
+    message.value =
+      recorded > 0
+        ? `注册成功！已为您补录 ${recorded} 次经期记录，可直接登录享受个性化预测。`
+        : '注册成功，请直接登录！';
     isRegistering.value = false;
+    showBackfill.value = false;
+    periodDates.value = ['', ''];
     errorMsg.value = '';
   } catch (err) {
     errorMsg.value = extractApiErrorMessage(err, '注册失败');
@@ -169,6 +210,58 @@ const handleRegister = async () => {
           <p v-if="isRegistering" id="password-hint" class="text-xs text-gray-500">
             至少 8 个字符，最多 72 个 UTF-8 字节（纯英文、数字或半角符号最多 72 个字符）。
           </p>
+        </div>
+      </div>
+
+      <div v-if="isRegistering" class="space-y-3">
+        <button
+          id="backfill-toggle"
+          type="button"
+          @click="toggleBackfill"
+          class="w-full flex items-center justify-between px-4 py-3 bg-rose-50/60 border border-rose-100 rounded-2xl text-sm text-rose-600 font-medium hover:bg-rose-50 transition-colors"
+        >
+          <span>🌸 补录最近经期日期（可选，加速个性化预测）</span>
+          <span class="text-rose-400 text-xs">{{ showBackfill ? '收起' : '展开' }}</span>
+        </button>
+
+        <div v-if="showBackfill" id="backfill-panel" class="space-y-3">
+          <p class="text-xs text-gray-500 leading-relaxed">
+            可选：补录最近 2~4 次经期开始日期后，注册即可立即获得基础统计量与预测区间，无需等待积累 4 个完整周期。日期不晚于今天、相邻间隔 15~60 天。
+          </p>
+          <div
+            v-for="(_slot, index) in periodDates"
+            :key="index"
+            class="flex items-center gap-2"
+          >
+            <label :for="`backfill-date-${index}`" class="sr-only">
+              第 {{ index + 1 }} 个经期开始日期
+            </label>
+            <input
+              :id="`backfill-date-${index}`"
+              v-model="periodDates[index]"
+              type="date"
+              :max="todayStr"
+              class="w-full px-3 py-2.5 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-rose-100 focus:border-rose-400 outline-none transition-all duration-300"
+            />
+            <button
+              type="button"
+              :disabled="periodDates.length <= 2"
+              :aria-label="`移除第 ${index + 1} 个日期`"
+              @click="removePeriodDate(index)"
+              class="shrink-0 px-2.5 py-2.5 text-xs text-gray-400 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              移除
+            </button>
+          </div>
+          <button
+            v-if="periodDates.length < MAX_BACKFILL_DATES"
+            id="backfill-add"
+            type="button"
+            @click="addPeriodDate"
+            class="w-full text-xs text-rose-500 hover:text-rose-600 font-medium transition-colors"
+          >
+            + 添加一次经期开始日期
+          </button>
         </div>
       </div>
 

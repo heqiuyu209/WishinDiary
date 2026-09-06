@@ -6,7 +6,9 @@
 # 每次正式发布应同步完成：
 #   1. CHANGELOG 更新；
 #   2. 数据库迁移版本号确认（alembic heads）；
-#   3. 模型按 wishindiary-api/scripts/train.py 用合成数据本地生成，并把该模型自身哈希写入 MODEL_SHA256（仓库不附带模型文件）。
+#   3. 官方演示基线模型（纯合成数据）由 CI 在本工作流内用 wishindiary-api/scripts/train.py --synthetic-only
+#      生成，并作为 Release 资产随版本发布（*.skops 不入 git 历史，仅在 Release 中供下载）。
+#      使用者下载后以 sha256 校验，并将哈希写入 MODEL_SHA256。
 name: Release
 
 on:
@@ -70,6 +72,12 @@ jobs:
           ruff check app scripts tests
           python -m pytest
 
+      - name: Build demo baseline model (synthetic)
+        # 生成纯合成"演示基线"模型（不读真实用户库），作为 Release 资产随版本发布。
+        # 仅供开箱即用演示，不宣称任何真实预测准确率；SHA-256 见 MODEL_CARD.md。
+        working-directory: ./wishindiary-api
+        run: python scripts/train.py --synthetic-only
+
       - name: Verify frontend build
         working-directory: ./Wishindiary-web
         run: |
@@ -120,3 +128,4 @@ jobs:
             wishindiary-api/requirements.txt
             wishindiary-api/migrations/versions/*.py
             MODEL_CARD.md
+            wishindiary-api/ml/menstrual_rf_model.skops

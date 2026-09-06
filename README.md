@@ -63,12 +63,16 @@ Docker 中认证 Cookie 默认要求 HTTPS。通过 HTTP 的 IP:端口调试时�
 
 ### Windows PowerShell
 
-> 首次使用请先构建后端虚拟环境并生成模型（仓库不附带预训练模型，见 [MODEL_CARD.md](MODEL_CARD.md)）：
+> 首次使用推荐直接从 GitHub Release 下载**官方演示基线模型**（纯合成数据，见 [MODEL_CARD.md](MODEL_CARD.md)），
+> 或本地以合成数据训练一份。模型就位后放入 `wishindiary-api\ml\menstrual_rf_model.skops`，
+> 并把 [MODEL_CARD.md](MODEL_CARD.md) 给出的 SHA-256 填入根目录 `.env` 的 `MODEL_SHA256`。
 
 ```powershell
 cd C:\path\to\WishinDiary
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r .\wishindiary-api\requirements.txt
+# 方式一：从 GitHub Release 下载 menstrual_rf_model.skops，放入 wishindiary-api\ml\
+# 方式二：本地生成纯合成模型（结果请自行用 inspect_model.py 校验）：
 .\.venv\Scripts\python.exe .\wishindiary-api\scripts\train.py --synthetic-only
 ```
 
@@ -88,12 +92,16 @@ docker compose ps
 
 ### Linux/macOS
 
-> 首次使用请先构建后端虚拟环境并生成模型（仓库不附带预训练模型，见 [MODEL_CARD.md](MODEL_CARD.md)）：
+> 首次使用推荐直接从 GitHub Release 下载**官方演示基线模型**（纯合成数据，见 [MODEL_CARD.md](MODEL_CARD.md)），
+> 或本地以合成数据训练一份。模型就位后放入 `wishindiary-api/ml/menstrual_rf_model.skops`，
+> 并把 [MODEL_CARD.md](MODEL_CARD.md) 给出的 SHA-256 填入根目录 `.env` 的 `MODEL_SHA256`。
 
 ```bash
 cd /path/to/WishinDiary
 python3 -m venv .venv
 .venv/bin/pip install -r wishindiary-api/requirements.txt
+# 方式一：从 GitHub Release 下载 menstrual_rf_model.skops，放入 wishindiary-api/ml/
+# 方式二：本地生成纯合成模型（结果请自行用 inspect_model.py 校验）：
 .venv/bin/python wishindiary-api/scripts/train.py --synthetic-only
 ```
 
@@ -210,22 +218,23 @@ powershell -ExecutionPolicy Bypass -File .\wishindiary-api\scripts\test_login.ps
 
 ## 机器学习模型
 
-仓库**不附带预训练模型文件**。模型由
-`wishindiary-api/scripts/train.py` 用固定随机种子的纯合成周期数据（或你自己的授权数据）生成到
-`wishindiary-api/ml/` 下，不读取真实用户数据库。
-
-生成与检查模型：
+项目不把模型文件提交进 Git 历史（`*.skops` 已在 .gitignore 排除）。**官方演示基线模型**
+（纯合成数据训练，不读取真实用户数据库）随 **GitHub Release 资产**发布，用于开箱即用；
+也可用 `wishindiary-api/scripts/train.py` 本地生成（固定随机种子的纯合成数据，或你自己的授权数据）。
 
 ```powershell
+# 方式一：从 GitHub Release 下载 menstrual_rf_model.skops，放入 wishindiary-api\ml\
+# 方式二：本地生成（等价于合成数据训练，结果请自行校验）：
 cd C:\path\to\WishinDiary\wishindiary-api
 ..\.venv\Scripts\python.exe scripts/train.py --synthetic-only
+# 无论下载还是本地生成，都建议检查模型：
 ..\.venv\Scripts\python.exe scripts/inspect_model.py
 ```
 
-生成后 `wishindiary-api/ml/menstrual_rf_model.skops` 即被应用加载。开发环境若未生成模型，
-预测接口以"无模型基线预测"降级运行（日志有告警）；生产环境则拒绝启动。模型信息与 SHA-256
-约定见 [MODEL_CARD.md](MODEL_CARD.md)——重新训练后必须把产出的 hash 更新到 `MODEL_SHA256`，
-生产环境不会加载哈希不匹配的模型。
+模型就绪后 `wishindiary-api/ml/menstrual_rf_model.skops` 即被应用加载。开发环境若未生成模型，
+预测接口以"无模型基线预测"降级运行（日志有告警）；生产环境则拒绝启动。官方演示基线的版本、
+SHA-256、校验方式与免责声明见 [MODEL_CARD.md](MODEL_CARD.md)——下载或重新训练后，必须把对应 hash
+更新到 `.env` 的 `MODEL_SHA256`，生产环境不会加载哈希不匹配的模型。
 
 ## 测试与质量门禁
 
