@@ -61,7 +61,8 @@ const validateInput = (): string => {
   }
   if (isRegistering.value && showBackfill.value) {
     const backfill = collectBackfillDates();
-    if (backfill.length === 1) return '补录经期开始日期至少需要 2 个（才能构成完整周期），无需补录请收起该步骤';
+    if (backfill.length === 1)
+      return '补录经期开始日期至少需要 2 个（才能构成完整周期），无需补录请收起该步骤';
   }
   return '';
 };
@@ -226,13 +227,10 @@ const handleRegister = async () => {
 
         <div v-if="showBackfill" id="backfill-panel" class="space-y-3">
           <p class="text-xs text-gray-500 leading-relaxed">
-            可选：补录最近 2~4 次经期开始日期后，注册即可立即获得基础统计量与预测区间，无需等待积累 4 个完整周期。日期不晚于今天、相邻间隔 15~60 天。
+            可选：补录最近 2~4 次经期开始日期后，注册即可立即获得基础统计量与预测区间，无需等待积累
+            4 个完整周期。日期不晚于今天、相邻间隔 15~60 天。
           </p>
-          <div
-            v-for="(_slot, index) in periodDates"
-            :key="index"
-            class="flex items-center gap-2"
-          >
+          <div v-for="(_slot, index) in periodDates" :key="index" class="flex items-center gap-2">
             <label :for="`backfill-date-${index}`" class="sr-only">
               第 {{ index + 1 }} 个经期开始日期
             </label>
