@@ -27,7 +27,7 @@
 | 数据库 | MySQL 8.0 |
 | 认证 | bcrypt、PyJWT、HttpOnly Cookie |
 | 机器学习 | NumPy、Pandas、scikit-learn、skops |
-| Web | Node.js 22.18+、Vue 3、Vite、Pinia、Axios、V-Calendar、ECharts |
+| Web | Node.js 24.19 LTS（或 22.22.2+）、Vue 3、Vite、Pinia、Axios、V-Calendar、ECharts |
 | 部署 | Docker Compose、Nginx |
 
 ## 目录
@@ -53,7 +53,7 @@ WishinDiary/
 ## 运行前要求
 
 - Windows 10/11、Linux 或 macOS
-- Python 3.12、Node.js 22.18+
+- Python 3.12、Node.js 24.19 LTS（或 22.22.2+）
 - MySQL 8.0+（本地开发需要；Docker 会自动启动）
 - Docker Desktop（容器部署需要）
 

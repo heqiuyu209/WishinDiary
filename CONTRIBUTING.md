@@ -5,7 +5,7 @@
 ## 开发流程
 
 1. Fork 仓库并创建功能分支。
-2. 使用 Python 3.12 和 Node.js 22.18 或更高版本。
+2. 使用 Python 3.12 和 Node.js 24.19 LTS（或受支持的 22.22.2+）。
 3. 后端安装 `wishindiary-api/requirements-dev.txt`，前端执行 `npm ci`。
 4. 只使用合成数据编写测试和演示。
 5. 修改 API 时同步更新测试和 README。
