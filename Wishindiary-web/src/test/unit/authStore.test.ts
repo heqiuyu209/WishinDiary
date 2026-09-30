@@ -51,7 +51,7 @@ describe('useAuthStore', () => {
 
   it('未登录时 refreshSession 调 session 接口成功则登录', async () => {
     getSessionApiMock.mockResolvedValue({
-      data: { status: 'success', username: 'bob' },
+      data: { status: 'success', username: 'bob', email: 'bob@example.com', is_admin: true },
     } as never);
 
     const store = useAuthStore();
@@ -59,6 +59,8 @@ describe('useAuthStore', () => {
     expect(result).toBe(true);
     expect(store.isLoggedIn).toBe(true);
     expect(store.currentUsername).toBe('bob');
+    expect(store.currentEmail).toBe('bob@example.com');
+    expect(store.isAdmin).toBe(true);
   });
 
   it('session 接口失败时 refreshSession 返回 false 并保持登出', async () => {

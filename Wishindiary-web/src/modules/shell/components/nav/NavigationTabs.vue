@@ -33,6 +33,7 @@ const { indicatorStyle, setBtn } = useNavIndicator(
       :key="item.name"
       :ref="setBtn(index)"
       type="button"
+      :aria-label="item.label"
       @click="emit('select', item.name)"
       :class="
         activeName === item.name

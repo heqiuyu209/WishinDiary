@@ -203,8 +203,6 @@ def get_latest_features_for_user(user_id: int) -> tuple[dict[str, float | int], 
     finally:
         connection.close()
 
-    df_logs = pd.DataFrame()
-
     if not df_cycles.empty:
         df_cycles = df_cycles.loc[
             df_cycles["cycle_length"].between(MIN_CYCLE_LENGTH, MAX_CYCLE_LENGTH)
@@ -215,45 +213,20 @@ def get_latest_features_for_user(user_id: int) -> tuple[dict[str, float | int], 
         ].sort_values("start_date")
 
     # P0-2 贝叶斯收缩个性化统计：
-    # 在 tail(4) 截断窗口之前基于健康过滤后的全部历史（LIMIT 50 内）统计，
+    # 基于过滤后的全部历史（LIMIT 50 内）统计，
     # n_complete_cycles = 完整周期数（至少 4 个才能进入下方窗口判断）；
     # user_mean = 未收缩的原始周期长度均值，与训练清洗口径一致。
     n_complete_cycles = int(len(df_cycles)) if not df_cycles.empty else 0
     user_mean = float(df_cycles["cycle_length"].mean()) if n_complete_cycles > 0 else 0.0
 
-    if not df_cycles.empty:
-        df_cycles = df_cycles.tail(4).reset_index(drop=True)
-
-    if len(df_cycles) < 4:
+    if n_complete_cycles < 4:
         raise ValueError("数据不足：需要至少4个完整周期才能进行机器学习预测")
-
-    _, _, full_matrix = build_cycle_feature_matrix(df_cycles, df_logs)
-
-    # 滑动窗口特征需要至少 4 个周期才能形成 1 行有效样本
-    # (rolling(3) + lag_3 导致前 3 行被 drop)
-    if full_matrix.empty:
-        raise ValueError("数据不足：需要至少4个完整周期才能形成有效的机器学习特征窗口")
-
-    latest_row = full_matrix.iloc[-1]
-
-    features = {
-        "lag_1_length": float(latest_row["lag_1_length"]),
-        "lag_2_length": float(latest_row["lag_2_length"]),
-        "lag_3_length": float(latest_row["lag_3_length"]),
-        "lag_1_bleeding": float(latest_row["lag_1_bleeding"]),
-        "lag_2_bleeding": float(latest_row["lag_2_bleeding"]),
-        "lag_3_bleeding": float(latest_row["lag_3_bleeding"]),
-        "roll_3_mean": float(latest_row["roll_3_mean"]),
-        "roll_3_std": float(latest_row["roll_3_std"]),
-        "start_month_sin": float(latest_row["start_month_sin"]),
-        "start_month_cos": float(latest_row["start_month_cos"]),
-    }
 
     # 预测基准：优先用最新标记的开始日期
     if latest_start_row is not None:
         last_start_date = latest_start_row["start_date"]
     else:
-        last_start_date = latest_row["start_date"]
+        raise ValueError("数据不足：缺少最新周期开始日期")
 
     # Keep the public inference contract stable across MySQL drivers.
     if hasattr(last_start_date, "to_pydatetime"):
@@ -263,4 +236,38 @@ def get_latest_features_for_user(user_id: int) -> tuple[dict[str, float | int], 
     elif isinstance(last_start_date, str):
         last_start_date = pd.to_datetime(last_start_date, errors="raise").date()
 
+    features = build_prediction_feature_row(df_cycles, last_start_date)
     return features, last_start_date, n_complete_cycles, user_mean
+
+
+def build_prediction_feature_row(history: pd.DataFrame, prediction_start: date) -> dict[str, float]:
+    """Build the next-cycle row from completed history, without a known target.
+
+    Training shifts the target row out of its own history. Inference has no
+    target row yet: its lag_1 is the newest completed cycle, and its month is
+    the current prediction anchor. Keep the same sample-standard-deviation
+    and missing-bleeding convention as build_cycle_feature_matrix.
+    """
+    window = _normalize_cycle_frame(history).sort_values("start_date").tail(3)
+    if len(window) < 3:
+        raise ValueError("数据不足：需要至少3条历史记录构造预测特征")
+    lengths = window["cycle_length"]
+    bleeding = window["bleeding_days"].fillna(5)
+    if lengths.isna().any():
+        raise ValueError("预测历史必须是已知完整周期")
+    features = {
+        f"lag_{idx}_length": float(length)
+        for idx, length in enumerate(reversed(lengths.tolist()), 1)
+    }
+    features.update({
+        f"lag_{idx}_bleeding": float(days)
+        for idx, days in enumerate(reversed(bleeding.tolist()), 1)
+    })
+    month_rad = 2.0 * math.pi * (prediction_start.month - 1.0) / 12.0
+    features.update({
+        "roll_3_mean": float(lengths.mean()),
+        "roll_3_std": float(lengths.std()),
+        "start_month_sin": math.sin(month_rad),
+        "start_month_cos": math.cos(month_rad),
+    })
+    return features

@@ -33,6 +33,7 @@ export interface LoginRequest {
 export interface RegisterRequest {
   username: string;
   password: string;
+  email?: string;
   /** 可选：注册时补录最近 2~4 个经期开始日期（升序、不重复、间隔 15~60 天、不晚于今天） */
   period_start_dates?: string[];
 }
@@ -43,6 +44,8 @@ export interface LoginResponse extends StatusResponse {
 }
 
 export interface RegisterResponse extends StatusResponse {
+  email_verification_required?: boolean;
+  email_verification_sent?: boolean;
   user_id?: number | null;
   /** 本次注册补录写入的经期开始日期数量 */
   period_dates_recorded?: number | null;
@@ -51,6 +54,57 @@ export interface RegisterResponse extends StatusResponse {
 export interface SessionResponse extends StatusResponse {
   user_id?: number | null;
   username?: string | null;
+  is_admin?: boolean;
+  email?: string | null;
+}
+
+export interface NotificationSettings extends StatusResponse {
+  email: string | null;
+  email_verified: boolean;
+  pending_email: string | null;
+  enabled: boolean;
+  lead_days: 1 | 2 | 3;
+  timezone: string;
+  mail_available: boolean;
+  last_delivery_state: string | null;
+}
+
+export interface NotificationPreferences {
+  enabled: boolean;
+  lead_days: 1 | 2 | 3;
+  timezone: string;
+}
+
+export interface ResearchSummary extends StatusResponse {
+  data: {
+    reminder_states?: { state: string; count: number }[];
+    users: number;
+    total: number;
+    completed: number;
+    outside_range: number;
+    missing_bleeding: number;
+    users_with_ml_history: number;
+    feature_samples: number;
+    cycle_distribution: { days: number; count: number }[];
+    history_distribution: { label: string; count: number }[];
+  };
+  evaluation: {
+    available: boolean;
+    message?: string;
+    generated_at?: string;
+    git_commit?: string;
+    model_version?: string;
+    model_matches_report?: boolean | null;
+    dataset?: {
+      source: string;
+      total_samples: number;
+      real_samples: number;
+      synthetic_samples: number;
+      n_users: number;
+    };
+    metrics?: Record<string, Record<string, number>>;
+  };
+  recommendations: string[];
 }
 
 // ---------------------------------------------------------------------------

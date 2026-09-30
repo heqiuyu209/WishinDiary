@@ -22,6 +22,7 @@ COPY app ./app
 COPY ml ./ml
 COPY alembic.ini .
 COPY migrations ./migrations
+COPY scripts/send_reminders.py ./scripts/send_reminders.py
 
 # 创建非 root 运行用户
 RUN useradd -m appuser && chown -R appuser:appuser /app

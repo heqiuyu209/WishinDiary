@@ -34,6 +34,7 @@ onUnmounted(() => {
 <template>
   <div class="relative">
     <button
+      ref="profileButtonRef"
       type="button"
       @click.stop="toggle"
       class="flex items-center gap-2 rounded-full border border-white/55 bg-white/45 px-2.5 py-1.5 text-left shadow-sm transition-all duration-300 hover:bg-white/70 hover:shadow-md"
@@ -99,7 +100,13 @@ onUnmounted(() => {
             class="flex items-center justify-between rounded-2xl bg-white/80 px-3 py-2.5 border border-gray-100"
           >
             <span class="text-[11px] font-bold text-gray-500">邮箱账号</span>
-            <span class="text-[11px] font-semibold text-gray-400">即将开放</span>
+            <router-link
+              :to="{ name: 'Settings' }"
+              @click="close"
+              class="text-[11px] font-semibold text-rose-600"
+            >
+              绑定与提醒设置
+            </router-link>
           </div>
           <div
             class="flex items-center justify-between rounded-2xl bg-white/80 px-3 py-2.5 border border-gray-100"
@@ -112,7 +119,7 @@ onUnmounted(() => {
         <div
           class="mt-4 rounded-2xl border border-rose-100 bg-rose-50/80 px-3 py-2 text-[11px] leading-relaxed text-rose-700"
         >
-          后续会支持邮箱注册、找回密码和修改密码，个人资料入口先预留在这里。
+          邮箱验证后可用于登录和接收提醒。密码修改与找回功能将在后续迭代完善。
         </div>
       </div>
     </transition>

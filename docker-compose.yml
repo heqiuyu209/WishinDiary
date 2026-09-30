@@ -28,8 +28,16 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
-    environment:
+    environment: &backend_environment
       ENVIRONMENT: production
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8080}
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-false}
       DB_HOST: db
       DB_PORT: 3306
@@ -50,6 +58,22 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+
+  reminders:
+    profiles: ["reminders"]
+    build:
+      context: ./wishindiary-api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment: *backend_environment
+    command: ["python", "scripts/send_reminders.py", "--send", "--loop"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - wishin-network
     security_opt:
       - no-new-privileges:true
 
