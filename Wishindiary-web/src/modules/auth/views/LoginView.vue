@@ -90,7 +90,9 @@ const handleLogin = async () => {
     // 确认浏览器能携带 Cookie，再进入受保护页面。
     try {
       const session = await getSessionApi();
-      authStore.login(session.data.username ?? usernameInput.value);
+      authStore.login(session.data.username ?? usernameInput.value, {
+        is_admin: session.data.is_admin,
+      });
     } catch {
       authStore.logout();
       errorMsg.value =

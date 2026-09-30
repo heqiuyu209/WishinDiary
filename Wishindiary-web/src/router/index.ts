@@ -28,6 +28,12 @@ const routes: RouteRecordRaw[] = [
         name: 'Report',
         component: () => import('../modules/report/views/ReportView.vue'),
       },
+      {
+        path: 'admin/research',
+        name: 'Research',
+        component: () => import('../modules/research/views/ResearchView.vue'),
+        meta: { requiresAdmin: true },
+      },
     ],
   },
 ];
@@ -62,6 +68,7 @@ router.beforeEach(async (to) => {
   if (!hasValidSession) {
     return { name: 'Login' };
   }
+  if (to.meta.requiresAdmin && !authStore.isAdmin) return { name: 'Calendar' };
   return true;
 });
 

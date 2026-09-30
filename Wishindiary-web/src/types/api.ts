@@ -51,6 +51,38 @@ export interface RegisterResponse extends StatusResponse {
 export interface SessionResponse extends StatusResponse {
   user_id?: number | null;
   username?: string | null;
+  is_admin?: boolean;
+}
+
+export interface ResearchSummary extends StatusResponse {
+  data: {
+    users: number;
+    total: number;
+    completed: number;
+    outside_range: number;
+    missing_bleeding: number;
+    users_with_ml_history: number;
+    feature_samples: number;
+    cycle_distribution: { days: number; count: number }[];
+    history_distribution: { label: string; count: number }[];
+  };
+  evaluation: {
+    available: boolean;
+    message?: string;
+    generated_at?: string;
+    git_commit?: string;
+    model_version?: string;
+    model_matches_report?: boolean | null;
+    dataset?: {
+      source: string;
+      total_samples: number;
+      real_samples: number;
+      synthetic_samples: number;
+      n_users: number;
+    };
+    metrics?: Record<string, Record<string, number>>;
+  };
+  recommendations: string[];
 }
 
 // ---------------------------------------------------------------------------

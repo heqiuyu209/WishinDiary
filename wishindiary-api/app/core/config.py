@@ -4,6 +4,7 @@ from pathlib import Path
 import secrets
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -24,6 +25,8 @@ class Settings(BaseSettings):
     # 长期刷新令牌有效期（天）：access token 过期后用于无感续期；
     # 退出登录或刷新轮换时服务端撤销（见 refresh_tokens 表）。
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    # 由部署者指定已有账号 ID；默认无人拥有研究管理权限。
+    ADMIN_USER_IDS: str = ""
     # 仅用于尚未配置 HTTPS 的 HTTP 调试；正式 HTTPS 部署保持 false。
     ALLOW_INSECURE_HTTP: bool = False
 
@@ -62,6 +65,17 @@ class Settings(BaseSettings):
     @property
     def cookie_secure(self) -> bool:
         return self.ENVIRONMENT == "production" and not self.ALLOW_INSECURE_HTTP
+
+    @field_validator("ADMIN_USER_IDS")
+    @classmethod
+    def validate_admin_ids(cls, value: str) -> str:
+        if value.strip() and any(not item.strip().isdigit() or int(item) < 1 for item in value.split(",")):
+            raise ValueError("ADMIN_USER_IDS must contain comma-separated positive account IDs")
+        return value
+
+    @property
+    def admin_user_ids(self) -> frozenset[int]:
+        return frozenset(int(item.strip()) for item in self.ADMIN_USER_IDS.split(",") if item.strip())
 
     @property
     def cors_origins(self) -> list[str]:

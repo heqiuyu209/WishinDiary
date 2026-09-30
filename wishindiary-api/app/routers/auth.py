@@ -305,7 +305,8 @@ def get_session(user_id: int = Depends(get_current_user_id)):
             user = cursor.fetchone()
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
-        return {"status": "success", "user_id": user["user_id"], "username": user["username"]}
+        return {"status": "success", "user_id": user["user_id"], "username": user["username"],
+                "is_admin": user["user_id"] in settings.admin_user_ids}
     except HTTPException:
         raise
     except pymysql.err.OperationalError:

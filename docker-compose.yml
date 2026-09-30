@@ -30,6 +30,7 @@ services:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
       ENVIRONMENT: production
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-false}
       DB_HOST: db
       DB_PORT: 3306

@@ -21,11 +21,12 @@ const navShellRef = ref<HTMLElement | null>(null);
 
 const currentViewName = computed(() => String(route.name ?? ''));
 
-const navItems: NavItem[] = [
+const navItems = computed<NavItem[]>(() => [
   { name: 'Calendar', label: '打卡与预测', icon: '📍' },
   { name: 'Dashboard', label: '数据看板', icon: '📊' },
   { name: 'Report', label: '深度报告', icon: '📑' },
-];
+  ...(authStore.isAdmin ? [{ name: 'Research', label: '研究管理', icon: '🔬' }] : []),
+]);
 
 // 玻璃态滚动状态：0=顶部，1=滚动后
 const scrollY = ref(0);
@@ -167,7 +168,7 @@ onUnmounted(() => {
       :style="navSurfaceMetrics"
     >
       <!-- 移动端布局（<md） -->
-      <div class="flex flex-col gap-2 md:hidden px-3 py-3">
+      <div class="flex w-full flex-col gap-2 md:hidden px-3 py-3">
         <div class="flex items-center justify-between gap-2">
           <NavBrand :compact="isCompactNav" @select="navigateTo('Calendar')" />
 

@@ -86,3 +86,4 @@ class LoginResponse(StatusResponse):
 class SessionResponse(StatusResponse):
     user_id: int | None = None
     username: str | None = None
+    is_admin: bool = False
