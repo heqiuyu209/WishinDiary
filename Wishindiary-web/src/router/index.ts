@@ -34,6 +34,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../modules/research/views/ResearchView.vue'),
         meta: { requiresAdmin: true },
       },
+      {
+        path: 'settings',
+        name: 'Settings',
+        component: () => import('../modules/settings/views/SettingsView.vue'),
+      },
     ],
   },
 ];

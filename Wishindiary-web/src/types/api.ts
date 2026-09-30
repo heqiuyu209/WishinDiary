@@ -33,6 +33,7 @@ export interface LoginRequest {
 export interface RegisterRequest {
   username: string;
   password: string;
+  email?: string;
   /** 可选：注册时补录最近 2~4 个经期开始日期（升序、不重复、间隔 15~60 天、不晚于今天） */
   period_start_dates?: string[];
 }
@@ -43,6 +44,8 @@ export interface LoginResponse extends StatusResponse {
 }
 
 export interface RegisterResponse extends StatusResponse {
+  email_verification_required?: boolean;
+  email_verification_sent?: boolean;
   user_id?: number | null;
   /** 本次注册补录写入的经期开始日期数量 */
   period_dates_recorded?: number | null;
@@ -52,6 +55,24 @@ export interface SessionResponse extends StatusResponse {
   user_id?: number | null;
   username?: string | null;
   is_admin?: boolean;
+  email?: string | null;
+}
+
+export interface NotificationSettings extends StatusResponse {
+  email: string | null;
+  email_verified: boolean;
+  pending_email: string | null;
+  enabled: boolean;
+  lead_days: 1 | 2 | 3;
+  timezone: string;
+  mail_available: boolean;
+  last_delivery_state: string | null;
+}
+
+export interface NotificationPreferences {
+  enabled: boolean;
+  lead_days: 1 | 2 | 3;
+  timezone: string;
 }
 
 export interface ResearchSummary extends StatusResponse {

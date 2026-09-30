@@ -33,7 +33,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response = await getSessionApi();
       currentUsername.value = response.data.username ?? '';
-      currentEmail.value = '';
+      currentEmail.value = response.data.email ?? '';
       isAdmin.value = response.data.is_admin ?? false;
       isLoggedIn.value = true;
       return true;

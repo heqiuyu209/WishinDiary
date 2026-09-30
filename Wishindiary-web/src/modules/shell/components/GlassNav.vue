@@ -25,6 +25,7 @@ const navItems = computed<NavItem[]>(() => [
   { name: 'Calendar', label: '打卡与预测', icon: '📍' },
   { name: 'Dashboard', label: '数据看板', icon: '📊' },
   { name: 'Report', label: '深度报告', icon: '📑' },
+  { name: 'Settings', label: '邮箱与设置', icon: '⚙️' },
   ...(authStore.isAdmin ? [{ name: 'Research', label: '研究管理', icon: '🔬' }] : []),
 ]);
 
@@ -94,7 +95,7 @@ const profileInitial = computed(() => {
   return name.slice(0, 1).toUpperCase();
 });
 
-const profileEmail = computed(() => authStore.currentEmail || '邮箱注册待开放');
+const profileEmail = computed(() => authStore.currentEmail || '未绑定邮箱');
 
 // 周期状态胶囊：距预测经期还有几天
 const prediction = ref<PredictionResponseData | null>(null);
