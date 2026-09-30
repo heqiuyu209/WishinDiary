@@ -195,6 +195,8 @@ def get_current_user_id(
 def register(req: RegisterRequest):
     if len(req.password.encode("utf-8")) > 72:
         raise HTTPException(status_code=422, detail="密码 UTF-8 字节长度不能超过 72")
+    if req.email and not settings.mail_enabled:
+        raise HTTPException(status_code=503, detail="邮箱服务尚未启用，可暂不填写邮箱")
     connection = None
     try:
         connection = get_db_connection()
@@ -217,11 +219,23 @@ def register(req: RegisterRequest):
                 recalculate_cycle_lengths(cursor, new_user_id)
         connection.commit()
         audit("auth.register", actor_user_id=new_user_id, username=req.username, success=True)
+        email_sent = False
+        if req.email:
+            from app.services.notification_service import NotificationService
+            try:
+                NotificationService().request_verification(new_user_id, str(req.email))
+                email_sent = True
+            except Exception:
+                # The account is already committed. Delivery failure must not
+                # report a failed registration or expose SMTP recipient details.
+                logger.warning("Registration email verification unavailable user_id=%s", new_user_id)
         return {
             "status": "success",
             "message": "注册成功",
             "user_id": new_user_id,
             "period_dates_recorded": len(req.period_start_dates),
+            "email_verification_required": req.email is not None,
+            "email_verification_sent": email_sent,
         }
     except pymysql.err.IntegrityError:
         if connection is not None:
@@ -244,35 +258,39 @@ def register(req: RegisterRequest):
 @router.post("/login")
 def login(req: LoginRequest, response: Response, request: Request):
     client_key = request.client.host if request.client else "unknown"
+    audit_username = req.username if "@" not in req.username else None
     # 基于 MySQL 表的共享限流（跨进程/实例），不再使用进程内字典
     if not _check_login_rate_limit(client_key):
-        audit("auth.login.rate_limited", username=req.username, ip=client_key, success=False)
+        audit("auth.login.rate_limited", username=audit_username, ip=client_key, success=False)
         raise HTTPException(status_code=429, detail="登录尝试过于频繁，请稍后再试")
     if len(req.password.encode("utf-8")) > 72:
-        audit("auth.login.invalid", username=req.username, ip=client_key, success=False)
+        audit("auth.login.invalid", username=audit_username, ip=client_key, success=False)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     connection = None
     try:
         connection = get_db_connection()
         with connection.cursor() as cursor:
-            cursor.execute("SELECT user_id, password_hash FROM users WHERE username = %s", (req.username,))
+            cursor.execute("""SELECT user_id, username, password_hash FROM users
+                WHERE username = %s OR (email = %s AND email_verified_at IS NOT NULL)
+                ORDER BY (username = %s) DESC LIMIT 1""",
+                (req.username, req.username.strip().lower(), req.username))
             user = cursor.fetchone()
 
         if not user or not bcrypt.checkpw(req.password.encode('utf-8'), user['password_hash'].encode('utf-8')):
-            audit("auth.login.failed", username=req.username, ip=client_key, success=False)
+            audit("auth.login.failed", username=audit_username, ip=client_key, success=False)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
 
         # 2. 签发短期 JWT access token + 长期 refresh token（服务端可撤销）
         access_token = _build_access_token(user["user_id"])
         refresh_token = _issue_refresh_token(connection, user["user_id"], client_key)
         _set_auth_cookies(response, access_token, refresh_token)
-        audit("auth.login.success", actor_user_id=user["user_id"], username=req.username, ip=client_key, success=True)
+        audit("auth.login.success", actor_user_id=user["user_id"], username=user["username"], ip=client_key, success=True)
 
         # 3. 安全实践：登录响应体不再携带 JWT，仅保留 HttpOnly Cookie。
         return {
             "status": "success",
             "user_id": user['user_id'],
-            "username": req.username
+            "username": user["username"]
         }
     except HTTPException as he:
         raise he
@@ -280,7 +298,7 @@ def login(req: LoginRequest, response: Response, request: Request):
         logger.exception("Login database connection failed")
         raise HTTPException(status_code=503, detail="数据库连接失败，请检查 wishindiary-api/.env")
     except Exception:
-        logger.exception("Login failed for username=%s", req.username)
+        logger.exception("Login failed for username=%s", audit_username)
         raise HTTPException(status_code=500, detail="登录失败，请稍后重试")
     finally:
         if connection is not None:
@@ -299,14 +317,14 @@ def get_session(user_id: int = Depends(get_current_user_id)):
         connection = get_db_connection()
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT user_id, username FROM users WHERE user_id = %s",
+                "SELECT user_id, username, email FROM users WHERE user_id = %s",
                 (user_id,),
             )
             user = cursor.fetchone()
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
         return {"status": "success", "user_id": user["user_id"], "username": user["username"],
-                "is_admin": user["user_id"] in settings.admin_user_ids}
+                "is_admin": user["user_id"] in settings.admin_user_ids, "email": user["email"]}
     except HTTPException:
         raise
     except pymysql.err.OperationalError:

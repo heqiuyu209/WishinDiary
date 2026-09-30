@@ -22,6 +22,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
 
 EXPECTED_TABLES = {
+    "email_verifications",
+    "reminder_deliveries",
     "users",
     "cycles",
     "daily_logs",

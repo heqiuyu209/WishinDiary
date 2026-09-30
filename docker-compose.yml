@@ -31,6 +31,13 @@ services:
     environment:
       ENVIRONMENT: production
       ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8080}
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-false}
       DB_HOST: db
       DB_PORT: 3306

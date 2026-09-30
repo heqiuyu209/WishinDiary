@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from pydantic_core import PydanticCustomError
 
 from app.schemas.common import StatusResponse
@@ -19,6 +19,7 @@ class UserAuthRequest(BaseModel):
 class RegisterRequest(UserAuthRequest):
     username: str = Field(min_length=3, max_length=50, pattern=r"^[A-Za-z0-9_.-]+$")
     password: str = Field(min_length=8, max_length=128)
+    email: EmailStr | None = Field(default=None, max_length=254)
     period_start_dates: list[date] = Field(
         default_factory=list,
         max_length=4,
@@ -67,11 +68,14 @@ class RegisterRequest(UserAuthRequest):
 
 
 class LoginRequest(UserAuthRequest):
+    username: str = Field(min_length=1, max_length=254)
     # Keep legacy accounts usable; new registrations still require 8+ characters.
     password: str = Field(min_length=1, max_length=128)
 
 
 class RegisterResponse(StatusResponse):
+    email_verification_required: bool = False
+    email_verification_sent: bool = False
     user_id: int | None = None
     period_dates_recorded: int | None = Field(
         default=None, description="本次注册补录写入的经期开始日期数量"
@@ -87,3 +91,4 @@ class SessionResponse(StatusResponse):
     user_id: int | None = None
     username: str | None = None
     is_admin: bool = False
+    email: str | None = None

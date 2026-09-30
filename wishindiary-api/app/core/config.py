@@ -4,7 +4,8 @@ from pathlib import Path
 import secrets
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pydantic import Field, SecretStr, field_validator
+from typing import Literal
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +28,14 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     # 由部署者指定已有账号 ID；默认无人拥有研究管理权限。
     ADMIN_USER_IDS: str = ""
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = Field(default=587, ge=1, le=65535)
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: SecretStr = SecretStr("")
+    SMTP_FROM: str = ""
+    SMTP_SECURITY: Literal["starttls", "ssl", "none"] = "starttls"
+    EMAIL_VERIFICATION_MINUTES: int = Field(default=10, ge=1, le=60)
+    PUBLIC_WEB_URL: str = "http://localhost:5173"
     # 仅用于尚未配置 HTTPS 的 HTTP 调试；正式 HTTPS 部署保持 false。
     ALLOW_INSECURE_HTTP: bool = False
 
@@ -76,6 +85,12 @@ class Settings(BaseSettings):
     @property
     def admin_user_ids(self) -> frozenset[int]:
         return frozenset(int(item.strip()) for item in self.ADMIN_USER_IDS.split(",") if item.strip())
+
+    @property
+    def mail_enabled(self) -> bool:
+        return bool(self.SMTP_HOST and self.SMTP_FROM) and not (
+            self.ENVIRONMENT == "production" and self.SMTP_SECURITY == "none"
+        )
 
     @property
     def cors_origins(self) -> list[str]:
