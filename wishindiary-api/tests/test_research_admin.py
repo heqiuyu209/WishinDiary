@@ -2,6 +2,7 @@ import hashlib
 import json
 
 from app.core.config import settings
+from app.core.database import transaction
 from app.services.research_service import read_evaluation_report
 
 
@@ -28,10 +29,14 @@ def test_admin_receives_only_aggregate_data_and_baseline_guidance(client, auth_h
               "private_email": "never-return@example.com"}
     (tmp_path / "model_evaluation_report.json").write_text(json.dumps(report))
     assert client.get("/api/v1/auth/session").json()["is_admin"] is True
+    with transaction() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("INSERT INTO reminder_deliveries (user_id, cycle_start_date, predicted_date, reminder_date, state, created_at) VALUES (%s,'2026-09-04','2026-10-02','2026-09-30','sent',UTC_TIMESTAMP())", (user_id,))
     response = client.get("/api/v1/admin/research")
     assert response.status_code == 200
     result = response.json()
     assert result["data"]["users"] == 1
+    assert result["data"]["reminder_states"] == [{"state": "sent", "count": 1}]
     assert result["data"]["history_distribution"][0]["count"] == 1
     assert result["evaluation"]["model_matches_report"] is True
     assert any("尚未优于" in text for text in result["recommendations"])

@@ -31,6 +31,12 @@ const metricRows = computed(() => {
     { label: '时间留出 · 随机森林', mae: metrics.temporal_holdout?.mae },
   ];
 });
+const deliveryLabels: Record<string, string> = {
+  sent: 'SMTP 已受理',
+  sending: '发送中／待核查',
+  unknown: '结果不确定',
+  canceled: '发送前取消',
+};
 onMounted(() => void load());
 </script>
 
@@ -161,6 +167,25 @@ onMounted(() => void load());
             {{ summary.evaluation.git_commit?.slice(0, 8) || '未记录' }}
           </p>
         </template>
+      </div>
+      <div class="rounded-2xl border border-gray-100 bg-white p-5">
+        <h2 class="font-semibold">提醒运行状态</h2>
+        <p v-if="!summary.data.reminder_states?.length" class="mt-3 text-sm text-gray-500">
+          暂无提醒发送记录
+        </p>
+        <div class="mt-3 flex flex-wrap gap-2 text-sm">
+          <span
+            v-for="row in summary.data.reminder_states"
+            :key="row.state"
+            class="rounded-lg bg-gray-50 px-3 py-2"
+          >
+            {{ deliveryLabels[row.state] ?? row.state }}：{{ row.count }} 次
+          </span>
+        </div>
+        <p class="mt-3 text-sm leading-relaxed text-gray-500">
+          SMTP
+          受理不代表已到达收件箱。结果不确定或长时间发送中的记录需核查邮件服务日志，不自动重发。
+        </p>
       </div>
       <div class="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5">
         <h2 class="font-semibold">下一步实验方向</h2>

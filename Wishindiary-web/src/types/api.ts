@@ -77,6 +77,7 @@ export interface NotificationPreferences {
 
 export interface ResearchSummary extends StatusResponse {
   data: {
+    reminder_states?: { state: string; count: number }[];
     users: number;
     total: number;
     completed: number;

@@ -78,6 +78,8 @@ class ResearchService:
                         GROUP BY u.user_id
                     """)
                     histories = [int(r["n"]) for r in cursor.fetchall()]
+                    cursor.execute("SELECT state, COUNT(*) AS count FROM reminder_deliveries GROUP BY state ORDER BY state")
+                    reminder_states = [{"state": r["state"], "count": int(r["count"])} for r in cursor.fetchall()]
         except Exception:
             logger.exception("Research data summary failed")
             raise AppError(503, "service_unavailable", "研究汇总暂不可用，请稍后重试")
@@ -103,6 +105,7 @@ class ResearchService:
                 "users_with_ml_history": sum(n >= 4 for n in histories),
                 "feature_samples": sum(max(0, n - 3) for n in histories),
                 "cycle_distribution": distribution,
+                "reminder_states": reminder_states,
                 "history_distribution": [
                     {"label": "0 条", "count": sum(n == 0 for n in histories)},
                     {"label": "1–3 条", "count": sum(1 <= n < 4 for n in histories)},

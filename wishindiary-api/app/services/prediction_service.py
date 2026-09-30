@@ -167,7 +167,7 @@ class PredictionService:
         # 复用离线预训练模型（应用启动时加载一次，请求时只做推理，不重训）
         self._predictor = predictor or CyclePredictionService()
 
-    def get_prediction(self, user_id: int) -> dict:
+    def get_prediction(self, user_id: int, *, record: bool = True) -> dict:
         """为用户生成下一次经期预测并记录待对账预测。
 
         数据门槛：
@@ -209,30 +209,33 @@ class PredictionService:
             )
             _infer_latency_ms = (time.perf_counter() - _infer_start) * 1000.0
             if prediction_result is None:
+                if record:
+                    record_model_inference(
+                        model_version=MODEL_VERSION,
+                        latency_ms=_infer_latency_ms,
+                        success=False,
+                        user_id=user_id,
+                    )
+                raise AppError(500, "internal_error", "预测引擎内部计算错误")
+            if record:
                 record_model_inference(
                     model_version=MODEL_VERSION,
                     latency_ms=_infer_latency_ms,
-                    success=False,
+                    success=True,
                     user_id=user_id,
                 )
-                raise AppError(500, "internal_error", "预测引擎内部计算错误")
-            record_model_inference(
-                model_version=MODEL_VERSION,
-                latency_ms=_infer_latency_ms,
-                success=True,
-                user_id=user_id,
-            )
 
             # 记录模型输入分布与预测结果（监控失败不影响主链路）
             try:
                 from app.ml.monitoring import record_prediction
 
-                record_prediction(
-                    user_id=user_id,
-                    features=features_dict,
-                    prediction=prediction_result,
-                    model_version=MODEL_VERSION,
-                )
+                if record:
+                    record_prediction(
+                        user_id=user_id,
+                        features=features_dict,
+                        prediction=prediction_result,
+                        model_version=MODEL_VERSION,
+                    )
             except Exception:
                 logger.exception("模型监控记录失败，忽略", exc_info=True)
 
@@ -242,15 +245,20 @@ class PredictionService:
             )
         else:
             # 基础统计降级模式：样本过少，跳过模型监控，仅记录推理指标。
-            try:
-                record_model_inference(
-                    model_version=MODEL_VERSION,
-                    latency_ms=0.0,
-                    success=True,
-                    user_id=user_id,
-                )
-            except Exception:
-                logger.exception("基础统计预测指标记录失败，忽略")
+            if record:
+                try:
+                    record_model_inference(
+                        model_version=MODEL_VERSION,
+                        latency_ms=0.0,
+                        success=True,
+                        user_id=user_id,
+                    )
+                except Exception:
+                    logger.exception("基础统计预测指标记录失败，忽略")
+
+        # 批处理预览不写预测日志或监控文件；交互式预测保持原行为。
+        if not record:
+            return {"status": "success", "prediction": prediction_result}
 
         # 记录待对账预测，实际周期开始时由 log_start 回填 actual_date/error_days。
         try:
