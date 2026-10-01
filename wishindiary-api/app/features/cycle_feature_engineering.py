@@ -81,7 +81,7 @@ def _is_healthy_cycle(row):
     return True
 
 
-def load_cycle_training_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_cycle_training_data(*, clean: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
     """从数据库拉取原始周期数据并转化为 Pandas DataFrame（含医学范围清洗）。"""
     connection = _connect_db()
     try:
@@ -98,7 +98,7 @@ def load_cycle_training_data() -> tuple[pd.DataFrame, pd.DataFrame]:
         connection.close()
 
     # 医学范围清洗：剔除 0 天 / 70 天这类异常标记或测试垃圾
-    if not df_cycles.empty:
+    if clean and not df_cycles.empty:
         healthy_mask = (
             df_cycles["cycle_length"].between(MIN_CYCLE_LENGTH, MAX_CYCLE_LENGTH)
             & (
