@@ -63,6 +63,8 @@ RF 个性化路径和基础统计路径分别校准，不把两条路径的残�
 
 下一步优先用独立授权数据和新的未来时间段复核，探索波动分组与跨时间稳定性，同时考察区间宽度。未有足够证据前不把校准器接入线上预测或通知。
 
+现已支持固定模型和校准器的时间分窗诊断：在命令中加入 `--time-window-days 30`，生成 schema 3，并展示每窗及各历史/波动/缺失分组的配对区间指标。它复用既有测试预测，不把分窗当成新的独立验证；运行与结果见 [TEMPORAL_STABILITY.md](TEMPORAL_STABILITY.md)。
+
 方法依据：
 
 - [Angelopoulos & Bates：Conformal Prediction 入门，§1.1](https://arxiv.org/html/2107.07511v6#S1.SS1)：校准阶统计量和 IID 条件。
