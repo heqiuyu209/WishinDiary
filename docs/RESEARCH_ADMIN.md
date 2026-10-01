@@ -22,6 +22,7 @@ ADMIN_USER_IDS=1,5
 - 页面提示合成数据来源，并核对评估报告的模型摘要与当前模型文件。
 - 完整流程回测单独读取 `forecast_evaluation_report.json`，展示既有/模型未见用户、同样本基线、按历史条数/波动/缺失比例分组的误差，以及树分位和基础统计区间的实际覆盖率与宽度。
 - 回测报告核对算法代码摘要；代码不同、文件无效、报告缺失或空分组均显示明确状态。报告不代表当前部署权重的实测结果。
+- 时间校准报告另展示训练/校准/测试边界、每折校准量、同样本原始/校准区间覆盖率与宽度，以及无法校准的样本量。目标覆盖率与实测覆盖率分别解释，样本不足不生成有限区间。
 
 生成演示评估（不读取用户数据库）：
 
@@ -29,8 +30,12 @@ ADMIN_USER_IDS=1,5
 cd wishindiary-api
 python scripts/train.py --synthetic-only
 python scripts/backtest.py --synthetic-only
+# 可选：预留独立时间校准段，不改变线上模型或区间
+python scripts/backtest.py --synthetic-only --calibrate-intervals
 ```
 
 真实数据训练使用已有训练脚本和独立授权数据流程，管理端汇总不会自动用于训练。
 
 完整回测的数据格式、时间边界、基线与解读限制见 [RESEARCH_BACKTEST.md](RESEARCH_BACKTEST.md)。在源码环境生成报告后，部署时将汇总报告放入模型目录即可；网页不执行训练，也不接收任意文件路径。
+
+时间校准方法、配对比较及合成演示结果见 [INTERVAL_CALIBRATION.md](INTERVAL_CALIBRATION.md)。无需为这一研究入口配置真实 SMTP。
