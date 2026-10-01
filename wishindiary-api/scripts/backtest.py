@@ -28,9 +28,13 @@ def main() -> None:
                         help='Reserve chronological training/calibration/test segments (60/20/20 by default)')
     parser.add_argument('--test-cutoff', type=date.fromisoformat, help='First date of the untouched test segment')
     parser.add_argument('--calibration-cutoff', type=date.fromisoformat, help='First calibration date; requires --calibrate-intervals')
+    parser.add_argument('--time-window-days', type=int,
+                        help='Partition future forecasts into fixed windows (1–365 days, at most 60); requires --calibrate-intervals')
     args = parser.parse_args()
     if args.calibration_cutoff and not args.calibrate_intervals:
         parser.error('--calibration-cutoff requires --calibrate-intervals')
+    if args.time_window_days is not None and (not args.calibrate_intervals or not 1 <= args.time_window_days <= 365):
+        parser.error('--time-window-days requires --calibrate-intervals and 1–365 days')
     if args.synthetic_only:
         cycles, _ = build_synthetic_training_data()
         source_name = 'synthetic'
@@ -43,7 +47,7 @@ def main() -> None:
     # Canonical ordering makes fingerprints independent of CSV/database row order.
     canonical = cycles.sort_values(['user_id', 'start_date']).to_json(orient='records', date_format='iso')
     report = {
-        'schema_version': 2 if args.calibrate_intervals else 1,
+        'schema_version': 3 if args.time_window_days is not None else 2 if args.calibrate_intervals else 1,
         'metadata': _collect_env_metadata(),
         'pipeline_sha256': pipeline_fingerprint(),
         'dataset': {'source': source_name, 'total_cycles': len(cycles),
@@ -52,6 +56,7 @@ def main() -> None:
         'evaluation': run_forecast_backtest(
             cycles, cutoff=args.test_cutoff, calibration_fraction=0.2 if args.calibrate_intervals else 0.0,
             calibration_cutoff=args.calibration_cutoff,
+            time_window_days=args.time_window_days,
         ),
         'notes': [
             '模型仅使用截点前已完成的训练标签，截点后保持冻结；个人历史逐周期更新。',
@@ -68,6 +73,12 @@ def main() -> None:
             'RF 与基础统计分别使用最终点预测的绝对误差，取 ceil((n+1)*0.9) 阶统计量；样本不足时不输出有限区间。',
             '模型未见用户的全局训练和校准均排除该折测试用户；原始与校准区间只在相同未来样本上配对比较。',
             '90% 是预先指定的实验目标。周期内相关性、时间变化与用户差异不满足 IID 假设，经验覆盖率不构成可靠保证。',
+        ])
+    if args.time_window_days is not None:
+        report['notes'].extend([
+            '未来样本按预测发起日划分连续、不重叠的固定时间窗；同一冻结模型和校准器用于所有窗口，不根据测试结果重拟合。',
+            '分窗与分组的区间对比使用相同配对样本，保留空窗和校准不足状态；窗口边界不代表已经完整观察该时间段。',
+            '窗口长度应在查看测试结果前固定；反复调参后的同一测试段不再是独立验证。',
         ])
     directory = args.output_dir or settings.model_abs_path.parent
     directory.mkdir(parents=True, exist_ok=True)
