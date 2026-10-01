@@ -22,8 +22,7 @@ from app.features import get_latest_features_for_user
 from app.ml.contract import MODEL_VERSION
 from app.repositories.cycle_repository import get_user_latest_cycle, get_user_valid_cycles
 from app.repositories.prediction_log_repository import (
-    get_existing_pending_prediction,
-    insert_pending_prediction,
+    insert_prediction_snapshot,
 )
 from app.services.cycle_prediction_service import CyclePredictionService
 
@@ -264,13 +263,14 @@ class PredictionService:
         try:
             with transaction() as connection:
                 with connection.cursor() as cursor:
-                    pending = get_existing_pending_prediction(
-                        cursor, user_id, prediction_result["next_period_start"]
+                    insert_prediction_snapshot(
+                        cursor, user_id, prediction_result,
+                        method=("basic_stats" if features_dict is None else
+                                "rf_personalized" if self._predictor.model is not None else
+                                "mean_personalized"),
+                        model_sha256=getattr(self._predictor, "model_sha256", None)
+                        if features_dict is not None else None,
                     )
-                    if pending is None:
-                        insert_pending_prediction(
-                            cursor, user_id, prediction_result["next_period_start"]
-                        )
         except Exception:
             logger.exception("prediction log write failed for user_id=%s", user_id)
 

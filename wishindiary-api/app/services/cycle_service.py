@@ -62,6 +62,7 @@ class CycleService:
         try:
             with transaction() as connection:
                 with connection.cursor() as cursor:
+                    cursor.execute("SELECT user_id FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
                     # 0. 行级排他锁，防止并发读写
                     unclosed_cycle = get_unclosed_cycle_for_update(cursor, user_id)
 
@@ -99,7 +100,7 @@ class CycleService:
                     # 3. 写入新周期 (利用 UNIQUE KEY uk_user_start 兜底幂等性)
                     insert_cycle(cursor, user_id, start_date)
 
-                    # 4. 对最近一条尚未对账的预测进行回填；没有待对账记录时不插入残缺记录。
+                    # 4. 对上一周期的首次前瞻快照回填；不按实际结果挑选最接近的预测。
                     pending = get_pending_prediction_for_reconcile(cursor, user_id, start_date)
                     if pending:
                         error_days = (start_date - pending["predicted_date"]).days
