@@ -129,6 +129,21 @@ def test_schema_three_whitelists_aggregates_in_windows_and_groups(tmp_path, monk
     assert "never-return" not in json.dumps(result) and "residuals" not in json.dumps(result)
 
 
+def test_admin_recommends_future_verification_when_window_coverage_changes(client, auth_header, tmp_path, monkeypatch):
+    report = {"schema_version": 3, "pipeline_sha256": pipeline_fingerprint(),
+              "dataset": {"source": "synthetic", "n_users": 9, "total_cycles": 126}}
+    frame = _cycles()
+    frame.loc[frame.start_date >= date(2024, 10, 7), "cycle_length"] = 44
+    report["evaluation"] = _run(frame, time_window_days=30)
+    assert _read(tmp_path, monkeypatch, report)["available"]
+    user = client.get("/api/v1/auth/session").json()["user_id"]
+    monkeypatch.setattr(settings, "ADMIN_USER_IDS", str(user))
+    result = client.get("/api/v1/admin/research").json()
+    assert result["forecast_evaluation"]["time_windows"]["window_days"] == 30
+    assert any("4/5 个可评估时间窗" in item and "新时间段复核" in item for item in result["recommendations"])
+    assert "test_user" not in json.dumps(result)
+
+
 @pytest.mark.parametrize("invalid", [
     "days", "basis", "horizon", "last_date", "gap", "overlap", "early_start", "window_count",
     "sample_count", "paired_count", "unavailable", "coverage", "width", "missing_groups",

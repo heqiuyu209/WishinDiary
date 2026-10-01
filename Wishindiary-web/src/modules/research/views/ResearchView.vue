@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { getResearchSummaryApi } from '../api';
 import { extractApiErrorMessage } from '../../../shared/api/httpClient';
+import IntervalBreakdownTable from '../components/IntervalBreakdownTable.vue';
 import type {
   ForecastGroup,
   ForecastIntervalMethod,
@@ -41,6 +42,12 @@ const forecastProtocol = ref<ForecastProtocol>('existing_users');
 const forecastGroup = ref<ForecastGroup>('history');
 const forecast = computed(() => summary.value?.forecast_evaluation);
 const forecastResult = computed(() => forecast.value?.protocols?.[forecastProtocol.value]);
+const timeWindowRows = computed(() =>
+  (forecastResult.value?.time_windows ?? []).map((row) => ({
+    ...row,
+    label: `${row.start}\n至 ${row.end_exclusive}（不含）`,
+  })),
+);
 const calibrationResult = computed(() => forecastResult.value?.calibration);
 const calibrationLabels: Record<ForecastIntervalMethod, string> = {
   rf_personalized: 'RF 个性化路径',
@@ -422,6 +429,15 @@ onMounted(() => void load());
                 </div>
               </div>
             </template>
+            <div v-if="forecast.time_windows" class="mt-5 min-w-0">
+              <h3 class="text-sm font-semibold">后续时间窗口</h3>
+              <p class="mt-3 text-sm leading-relaxed text-gray-500">
+                按预测发起日每 {{ forecast.time_windows.window_days }} 天分窗。
+                同一冻结模型与校准参数用于所有窗口，观察覆盖率和误差随时间的变化。 最后候选发起日
+                {{ forecast.time_windows.last_candidate_date }}；末窗仅包含报告已有样本。
+              </p>
+              <IntervalBreakdownTable :rows="timeWindowRows" selector-label="分窗区间路径" />
+            </div>
             <div class="mt-5 flex flex-wrap items-center gap-3 text-sm">
               <label for="forecast-group" class="font-semibold">分组误差</label>
               <select
@@ -459,6 +475,14 @@ onMounted(() => void load());
               </table>
             </div>
             <p class="mt-3 text-sm text-gray-500">小样本分组仅供探索，空组不生成误差指标。</p>
+            <div v-if="forecast.time_windows" class="mt-5 min-w-0">
+              <h3 class="text-sm font-semibold">分组区间对比</h3>
+              <IntervalBreakdownTable
+                :rows="forecastResult.groups?.[forecastGroup] ?? []"
+                selector-label="分组区间路径"
+                :include-point="false"
+              />
+            </div>
           </template>
           <p class="mt-3 break-all text-xs text-gray-500">
             生成时间 {{ forecast.generated_at || '未记录' }} · 代码
