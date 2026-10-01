@@ -38,7 +38,8 @@ def pipeline_fingerprint() -> str:
     """Identify the evaluated calculation, independently of a deployed weight file."""
     root = Path(__file__).resolve().parents[1]
     paths = ("ml/forecast_evaluation.py", "ml/basic_prediction.py", "ml/contract.py",
-             "features/cycle_feature_engineering.py", "services/cycle_prediction_service.py")
+             "features/cycle_feature_engineering.py", "services/cycle_prediction_service.py",
+             "services/prediction_service.py")
     digest = hashlib.sha256()
     for path in paths:
         digest.update(path.encode() + b"\0" + (root / path).read_bytes() + b"\0")

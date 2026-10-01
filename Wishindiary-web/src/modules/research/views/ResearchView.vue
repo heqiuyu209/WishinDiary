@@ -2,7 +2,12 @@
 import { computed, onMounted, ref } from 'vue';
 import { getResearchSummaryApi } from '../api';
 import { extractApiErrorMessage } from '../../../shared/api/httpClient';
-import type { ResearchSummary } from '../../../types/api';
+import type {
+  ForecastGroup,
+  ForecastMethod,
+  ForecastProtocol,
+  ResearchSummary,
+} from '../../../types/api';
 
 const summary = ref<ResearchSummary | null>(null);
 const loading = ref(false);
@@ -31,6 +36,27 @@ const metricRows = computed(() => {
     { label: '时间留出 · 随机森林', mae: metrics.temporal_holdout?.mae },
   ];
 });
+const forecastProtocol = ref<ForecastProtocol>('existing_users');
+const forecastGroup = ref<ForecastGroup>('history');
+const forecast = computed(() => summary.value?.forecast_evaluation);
+const forecastResult = computed(() => forecast.value?.protocols?.[forecastProtocol.value]);
+const protocolLabels: Record<ForecastProtocol, string> = {
+  existing_users: '既有用户',
+  unseen_users: '模型未见用户',
+};
+const methodLabels: Record<ForecastMethod, string> = {
+  online_pipeline: '线上完整算法',
+  mean3: '最近三次均值',
+  median3: '最近三次中位数',
+  ewma: '指数平滑（α=0.5）',
+};
+const sourceLabels: Record<string, string> = {
+  synthetic: '合成数据演示',
+  authorized_csv: '授权 CSV 数据',
+  authorized_database: '授权数据库数据',
+};
+const metric = (value: number | undefined, suffix = '') =>
+  value === undefined ? '暂无结果' : `${value.toFixed(2)}${suffix}`;
 const deliveryLabels: Record<string, string> = {
   sent: 'SMTP 已受理',
   sending: '发送中／待核查',
@@ -165,6 +191,156 @@ onMounted(() => void load());
           <p class="mt-3 break-all text-xs text-gray-500">
             生成时间 {{ summary.evaluation.generated_at || '未记录' }} · 代码
             {{ summary.evaluation.git_commit?.slice(0, 8) || '未记录' }}
+          </p>
+        </template>
+      </div>
+      <div class="min-w-0 rounded-2xl border border-gray-100 bg-white p-5">
+        <h2 class="font-semibold">完整流程前瞻回测</h2>
+        <p v-if="!forecast?.available" class="mt-3 text-sm text-gray-500">
+          {{ forecast?.message || '尚未生成完整流程回测报告' }}
+        </p>
+        <template v-else>
+          <div class="mt-3 flex flex-wrap gap-2 text-sm">
+            <span class="rounded-lg bg-indigo-50 px-3 py-2">
+              {{ sourceLabels[forecast.dataset?.source || ''] || '未标注来源' }}
+            </span>
+            <span class="rounded-lg bg-gray-50 px-3 py-2">
+              {{ forecast.dataset?.total_cycles }} 条周期 · {{ forecast.dataset?.n_users }} 个用户
+            </span>
+            <span class="rounded-lg bg-gray-50 px-3 py-2">日历截点 {{ forecast.cutoff }}</span>
+          </div>
+          <p
+            v-if="forecast.pipeline_matches_report === false"
+            role="alert"
+            class="mt-3 text-sm text-amber-700"
+          >
+            算法代码与回测报告不匹配，请重新生成报告后再解读结果。
+          </p>
+          <p class="mt-3 text-sm leading-relaxed text-gray-500">
+            截点前训练全局模型，之后保持冻结并逐周期更新个人历史。模型未见用户仍可以使用当时已知的个人记录。
+            本报告评估完整算法及折内模型，当前部署权重的实际效果需要后续观测。
+          </p>
+          <div class="mt-4 flex flex-wrap gap-2" aria-label="回测验证协议">
+            <button
+              v-for="(label, name) in protocolLabels"
+              :key="name"
+              type="button"
+              :aria-pressed="forecastProtocol === name"
+              class="rounded-lg border px-3 py-2 text-sm"
+              :class="
+                forecastProtocol === name
+                  ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                  : 'bg-white'
+              "
+              @click="forecastProtocol = name"
+            >
+              {{ label }}
+            </button>
+          </div>
+          <p class="mt-3 text-sm">共同评估样本：{{ forecastResult?.samples ?? 0 }} 条</p>
+          <p v-if="!forecastResult?.samples" class="mt-3 text-sm text-gray-500">
+            该协议暂无可用评估样本，不能据此判断模型优劣。
+          </p>
+          <template v-else>
+            <div class="mt-3 overflow-x-auto">
+              <table class="w-full min-w-100 text-left text-sm">
+                <caption class="pb-2 text-left text-gray-500">
+                  同一批未来周期 · 误差越小越好 · 正偏差表示预测偏晚
+                </caption>
+                <thead>
+                  <tr>
+                    <th class="py-2 font-medium">方法</th>
+                    <th class="px-2 py-2 font-medium">MAE（天）</th>
+                    <th class="px-2 py-2 font-medium">±3 天命中</th>
+                    <th class="px-2 py-2 font-medium">偏差（天）</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="(label, method) in methodLabels"
+                    :key="method"
+                    class="border-t border-gray-100"
+                  >
+                    <td class="py-3">{{ label }}</td>
+                    <td class="px-2">{{ metric(forecastResult.models[method]?.mae) }}</td>
+                    <td class="px-2">
+                      {{ metric(forecastResult.models[method]?.hit_rate_within_3d, '%') }}
+                    </td>
+                    <td class="px-2">{{ metric(forecastResult.models[method]?.bias_days) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <h3 class="mt-5 text-sm font-semibold">区间覆盖与宽度</h3>
+            <div class="mt-3 grid gap-3 sm:grid-cols-2">
+              <div
+                v-for="(label, method) in {
+                  rf_personalized: 'RF 个性化树分位区间',
+                  basic_stats: '基础统计区间',
+                }"
+                :key="method"
+                class="rounded-xl bg-gray-50 p-4 text-sm"
+              >
+                <p>{{ label }}</p>
+                <template v-if="forecastResult.intervals?.[method]?.samples">
+                  <p class="mt-2">
+                    实际覆盖率 {{ metric(forecastResult.intervals[method]?.coverage_pct, '%') }}
+                  </p>
+                  <p class="mt-1">
+                    平均宽度 {{ metric(forecastResult.intervals[method]?.mean_width_days, ' 天') }}
+                  </p>
+                  <p class="mt-1 text-gray-500">
+                    {{ forecastResult.intervals[method]?.samples }} 条样本
+                  </p>
+                </template>
+                <p v-else class="mt-2 text-gray-500">暂无区间样本</p>
+              </div>
+            </div>
+            <p class="mt-3 text-sm leading-relaxed text-gray-500">
+              树分位区间和基础统计区间分别统计。覆盖率反映实际落入范围的比例；两种区间都未经校准，不能当作
+              90% 可靠保证。
+            </p>
+            <div class="mt-5 flex flex-wrap items-center gap-3 text-sm">
+              <label for="forecast-group" class="font-semibold">分组误差</label>
+              <select
+                id="forecast-group"
+                v-model="forecastGroup"
+                class="rounded-lg border bg-white px-3 py-2"
+              >
+                <option value="history">有效历史条数</option>
+                <option value="volatility">历史波动程度</option>
+                <option value="missing_bleeding">出血天数缺失比例</option>
+              </select>
+            </div>
+            <div class="mt-3 overflow-x-auto">
+              <table class="w-full min-w-90 text-left text-sm">
+                <thead>
+                  <tr>
+                    <th class="py-2 font-medium">分组</th>
+                    <th class="px-2 py-2 font-medium">样本</th>
+                    <th class="px-2 py-2 font-medium">完整算法 MAE</th>
+                    <th class="px-2 py-2 font-medium">均值 MAE</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="row in forecastResult.groups?.[forecastGroup] ?? []"
+                    :key="row.label"
+                    class="border-t border-gray-100"
+                  >
+                    <td class="py-3">{{ row.label }}</td>
+                    <td class="px-2">{{ row.samples }}</td>
+                    <td class="px-2">{{ metric(row.models.online_pipeline?.mae) }}</td>
+                    <td class="px-2">{{ metric(row.models.mean3?.mae) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="mt-3 text-sm text-gray-500">小样本分组仅供探索，空组不生成误差指标。</p>
+          </template>
+          <p class="mt-3 break-all text-xs text-gray-500">
+            生成时间 {{ forecast.generated_at || '未记录' }} · 代码
+            {{ forecast.git_commit?.slice(0, 8) || '未记录' }}
           </p>
         </template>
       </div>
