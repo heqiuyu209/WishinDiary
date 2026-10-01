@@ -4,6 +4,7 @@ import { getResearchSummaryApi } from '../api';
 import { extractApiErrorMessage } from '../../../shared/api/httpClient';
 import type {
   ForecastGroup,
+  ForecastIntervalMethod,
   ForecastMethod,
   ForecastProtocol,
   ResearchSummary,
@@ -40,6 +41,19 @@ const forecastProtocol = ref<ForecastProtocol>('existing_users');
 const forecastGroup = ref<ForecastGroup>('history');
 const forecast = computed(() => summary.value?.forecast_evaluation);
 const forecastResult = computed(() => forecast.value?.protocols?.[forecastProtocol.value]);
+const calibrationResult = computed(() => forecastResult.value?.calibration);
+const calibrationLabels: Record<ForecastIntervalMethod, string> = {
+  rf_personalized: 'RF 个性化路径',
+  basic_stats: '基础统计路径',
+};
+const calibrationFitText = (method: ForecastIntervalMethod) => {
+  const fits = calibrationResult.value?.methods[method].fits ?? [];
+  if (!fits.length) return '暂无校准折';
+  const counts = fits.map((fit) => fit.samples);
+  const low = Math.min(...counts);
+  const high = Math.max(...counts);
+  return `每折校准 ${low === high ? low : `${low}–${high}`} 条 · ${fits.filter((fit) => fit.available).length}/${fits.length} 折可用`;
+};
 const protocolLabels: Record<ForecastProtocol, string> = {
   existing_users: '既有用户',
   unseen_users: '模型未见用户',
@@ -207,8 +221,15 @@ onMounted(() => void load());
             <span class="rounded-lg bg-gray-50 px-3 py-2">
               {{ forecast.dataset?.total_cycles }} 条周期 · {{ forecast.dataset?.n_users }} 个用户
             </span>
-            <span class="rounded-lg bg-gray-50 px-3 py-2">日历截点 {{ forecast.cutoff }}</span>
+            <span class="rounded-lg bg-gray-50 px-3 py-2">
+              {{ forecast.calibration ? '未来测试起点' : '日历截点' }} {{ forecast.cutoff }}
+            </span>
           </div>
+          <p v-if="forecast.calibration" class="mt-3 text-sm leading-relaxed text-gray-500">
+            校准开始 {{ forecast.calibration.cutoff }} · 训练标签截至
+            {{ forecast.calibration.training_labels_available_through }} · 校准标签截至
+            {{ forecast.calibration.labels_available_through || '暂无已完成标签' }}
+          </p>
           <p
             v-if="forecast.pipeline_matches_report === false"
             role="alert"
@@ -217,7 +238,11 @@ onMounted(() => void load());
             算法代码与回测报告不匹配，请重新生成报告后再解读结果。
           </p>
           <p class="mt-3 text-sm leading-relaxed text-gray-500">
-            截点前训练全局模型，之后保持冻结并逐周期更新个人历史。模型未见用户仍可以使用当时已知的个人记录。
+            <template v-if="forecast.calibration">
+              模型在校准开始前冻结，校准标签必须在未来测试开始前完成。模型未见用户同时从全局训练与校准中留出。
+            </template>
+            <template v-else>截点前训练全局模型，之后保持冻结。</template>
+            个人历史逐周期更新，模型未见用户仍可以使用当时已知的个人记录。
             本报告评估完整算法及折内模型，当前部署权重的实际效果需要后续观测。
           </p>
           <div class="mt-4 flex flex-wrap gap-2" aria-label="回测验证协议">
@@ -300,6 +325,103 @@ onMounted(() => void load());
               树分位区间和基础统计区间分别统计。覆盖率反映实际落入范围的比例；两种区间都未经校准，不能当作
               90% 可靠保证。
             </p>
+            <template v-if="calibrationResult">
+              <h3 class="mt-5 text-sm font-semibold">时间校准实验</h3>
+              <p class="mt-3 text-sm leading-relaxed text-gray-500">
+                预设目标
+                {{
+                  metric(calibrationResult.target_coverage_pct, '%')
+                }}。分别用两条路径的点预测绝对误差校准，
+                比较覆盖率与区间宽度。时间相关性与用户差异会影响覆盖，目标不代表可靠保证。
+              </p>
+              <div class="mt-3 grid gap-3 lg:grid-cols-2">
+                <div
+                  v-for="(label, method) in calibrationLabels"
+                  :key="method"
+                  class="min-w-0 rounded-xl border border-indigo-100 bg-indigo-50/30 p-4 text-sm"
+                >
+                  <h4 class="font-medium">{{ label }}</h4>
+                  <p class="mt-2 text-gray-500">{{ calibrationFitText(method) }}</p>
+                  <p
+                    v-if="!calibrationResult.methods[method].fits.some((fit) => fit.available)"
+                    class="mt-2 text-amber-700"
+                  >
+                    校准样本不足，未生成有限区间。
+                  </p>
+                  <p class="mt-2">
+                    校准区间可用 {{ calibrationResult.methods[method].calibrated.samples }} /
+                    {{ calibrationResult.methods[method].test_samples }} 条未来样本
+                  </p>
+                  <div
+                    v-if="calibrationResult.methods[method].comparison.samples"
+                    class="mt-3 overflow-x-auto"
+                  >
+                    <table class="w-full min-w-80 text-left">
+                      <caption class="pb-2 text-left text-gray-500">
+                        同一批未来样本：{{ calibrationResult.methods[method].comparison.samples }}
+                        条
+                      </caption>
+                      <thead>
+                        <tr>
+                          <th class="py-2 font-medium">区间</th>
+                          <th class="px-2 py-2 font-medium">覆盖率</th>
+                          <th class="px-2 py-2 font-medium">平均宽度</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="(rowLabel, key) in { original: '原始', calibrated: '校准后' }"
+                          :key="key"
+                          class="border-t border-indigo-100"
+                        >
+                          <td class="py-3">{{ rowLabel }}</td>
+                          <td class="px-2">
+                            {{
+                              metric(
+                                calibrationResult.methods[method].comparison[key].coverage_pct,
+                                '%',
+                              )
+                            }}
+                          </td>
+                          <td class="px-2">
+                            {{
+                              metric(
+                                calibrationResult.methods[method].comparison[key].mean_width_days,
+                                ' 天',
+                              )
+                            }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <p v-else class="mt-3 text-gray-500">暂无配对区间样本</p>
+                  <p
+                    v-if="
+                      calibrationResult.methods[method].calibrated.samples &&
+                      calibrationResult.methods[method].calibrated.samples !==
+                        calibrationResult.methods[method].comparison.samples
+                    "
+                    class="mt-3 text-gray-500"
+                  >
+                    全部可校准样本的覆盖率
+                    {{
+                      metric(calibrationResult.methods[method].calibrated.coverage_pct, '%')
+                    }}，平均宽度
+                    {{
+                      metric(calibrationResult.methods[method].calibrated.mean_width_days, ' 天')
+                    }}； 缺少原始区间的样本不参与配对比较。
+                  </p>
+                  <p
+                    v-if="calibrationResult.methods[method].unavailable_samples"
+                    class="mt-3 text-amber-700"
+                  >
+                    {{ calibrationResult.methods[method].unavailable_samples }}
+                    条测试样本因校准历史不足而无法校准。
+                  </p>
+                </div>
+              </div>
+            </template>
             <div class="mt-5 flex flex-wrap items-center gap-3 text-sm">
               <label for="forecast-group" class="font-semibold">分组误差</label>
               <select

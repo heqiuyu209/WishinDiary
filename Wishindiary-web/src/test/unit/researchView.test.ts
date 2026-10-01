@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ResearchView from '../../modules/research/views/ResearchView.vue';
+import type { ForecastCalibrationMethod } from '../../types/api';
 
 const getSummary = vi.hoisted(() => vi.fn());
 vi.mock('../../modules/research/api', () => ({ getResearchSummaryApi: getSummary }));
@@ -56,6 +57,73 @@ const forecastFixture = () => {
         ...result,
         samples: 50,
         models: { ...result.models, online_pipeline: { mae: 1.67 } },
+      },
+    },
+  };
+};
+
+const calibratedForecastFixture = () => {
+  const forecast = forecastFixture();
+  const basic: ForecastCalibrationMethod = {
+    fits: [{ samples: 0, rank: 1, available: false }],
+    test_samples: 0,
+    unavailable_samples: 0,
+    calibrated: { samples: 0 },
+    comparison: { samples: 0, original: { samples: 0 }, calibrated: { samples: 0 } },
+  };
+  const rf: ForecastCalibrationMethod = {
+    fits: [{ samples: 26, rank: 25, available: true, radius_days: 3 }],
+    test_samples: 54,
+    unavailable_samples: 0,
+    calibrated: { samples: 54, coverage_pct: 90.74, mean_width_days: 6 },
+    comparison: {
+      samples: 54,
+      original: { samples: 54, coverage_pct: 27.78, mean_width_days: 1.99 },
+      calibrated: { samples: 54, coverage_pct: 90.74, mean_width_days: 6 },
+    },
+  };
+  return {
+    ...forecast,
+    cutoff: '2024-08-18',
+    calibration: {
+      method: 'absolute_residual_split',
+      cutoff: '2024-06-26',
+      target_coverage_pct: 90,
+      candidate_samples: 26,
+      training_labels_available_through: '2024-06-26',
+      labels_available_through: '2024-08-18',
+    },
+    protocols: {
+      existing_users: {
+        ...forecast.protocols.existing_users,
+        calibration: {
+          target_coverage_pct: 90,
+          methods: { rf_personalized: rf, basic_stats: basic },
+        },
+      },
+      unseen_users: {
+        ...forecast.protocols.unseen_users,
+        samples: 54,
+        calibration: {
+          target_coverage_pct: 90,
+          methods: {
+            rf_personalized: {
+              ...rf,
+              fits: [
+                { samples: 20, rank: 19, available: true, radius_days: 3 },
+                { samples: 7, rank: 8, available: false },
+              ],
+              unavailable_samples: 4,
+              calibrated: { samples: 50, coverage_pct: 88, mean_width_days: 6 },
+              comparison: {
+                samples: 40,
+                original: { samples: 40, coverage_pct: 25, mean_width_days: 2 },
+                calibrated: { samples: 40, coverage_pct: 90, mean_width_days: 6 },
+              },
+            },
+            basic_stats: { ...basic, fits: [...basic.fits, ...basic.fits] },
+          },
+        },
       },
     },
   };
@@ -138,6 +206,66 @@ describe('research administration', () => {
     expect(wrapper.get('[role="alert"]').text()).toContain('算法代码与回测报告不匹配');
     expect(wrapper.text()).toContain('该协议暂无可用评估样本');
     expect(wrapper.text()).not.toContain('线上完整算法');
+    wrapper.unmount();
+  });
+
+  it('shows chronological boundaries and paired calibration coverage together with width', async () => {
+    getSummary.mockResolvedValue({
+      data: { ...fixture(), forecast_evaluation: calibratedForecastFixture() },
+    });
+    const wrapper = mount(ResearchView);
+    await flushPromises();
+    expect(wrapper.text()).toContain('未来测试起点 2024-08-18');
+    expect(wrapper.text()).toContain('校准开始 2024-06-26');
+    expect(wrapper.text()).toContain('时间校准实验');
+    expect(wrapper.text()).toContain('90.74%');
+    expect(wrapper.text()).toContain('27.78%');
+    expect(wrapper.text()).toContain('6.00 天');
+    expect(wrapper.text()).toContain('目标不代表可靠保证');
+    expect(wrapper.text()).toContain('每折校准 26 条 · 1/1 折可用');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '模型未见用户')!
+      .trigger('click');
+    expect(wrapper.text()).toContain('每折校准 7–20 条 · 1/2 折可用');
+    expect(wrapper.text()).toContain('同一批未来样本：40 条');
+    expect(wrapper.text()).toContain('88.00%');
+    expect(wrapper.text()).toContain('缺少原始区间的样本不参与配对比较');
+    expect(wrapper.text()).toContain('4 条测试样本因校准历史不足而无法校准');
+    wrapper.unmount();
+  });
+
+  it('keeps point metrics when calibration has insufficient samples', async () => {
+    const forecast = calibratedForecastFixture();
+    forecast.protocols.existing_users.calibration.methods.rf_personalized = {
+      fits: [{ samples: 8, rank: 9, available: false }],
+      test_samples: 54,
+      unavailable_samples: 54,
+      calibrated: { samples: 0 },
+      comparison: { samples: 0, original: { samples: 0 }, calibrated: { samples: 0 } },
+    };
+    getSummary.mockResolvedValue({ data: { ...fixture(), forecast_evaluation: forecast } });
+    const wrapper = mount(ResearchView);
+    await flushPromises();
+    expect(wrapper.text()).toContain('共同评估样本：54 条');
+    expect(wrapper.text()).toContain('线上完整算法');
+    expect(wrapper.text()).toContain('校准样本不足，未生成有限区间');
+    expect(wrapper.text()).toContain('54 条测试样本因校准历史不足而无法校准');
+    expect(wrapper.text()).not.toContain('90.74%');
+    expect(wrapper.text()).not.toContain('6.00 天');
+    wrapper.unmount();
+  });
+
+  it('preserves a calibrated zero-width interval as a measured result', async () => {
+    const forecast = calibratedForecastFixture();
+    const rf = forecast.protocols.existing_users.calibration.methods.rf_personalized;
+    rf.fits[0]!.radius_days = 0;
+    rf.calibrated.mean_width_days = rf.comparison.calibrated.mean_width_days = 0;
+    getSummary.mockResolvedValue({ data: { ...fixture(), forecast_evaluation: forecast } });
+    const wrapper = mount(ResearchView);
+    await flushPromises();
+    expect(wrapper.text()).toContain('0.00 天');
+    expect(wrapper.text()).toContain('90.74%');
     wrapper.unmount();
   });
 
