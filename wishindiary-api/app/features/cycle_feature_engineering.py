@@ -203,14 +203,7 @@ def get_latest_features_for_user(user_id: int) -> tuple[dict[str, float | int], 
     finally:
         connection.close()
 
-    if not df_cycles.empty:
-        df_cycles = df_cycles.loc[
-            df_cycles["cycle_length"].between(MIN_CYCLE_LENGTH, MAX_CYCLE_LENGTH)
-            & (
-                df_cycles["bleeding_days"].isna()
-                | df_cycles["bleeding_days"].between(MIN_BLEEDING_DAYS, MAX_BLEEDING_DAYS)
-            )
-        ].sort_values("start_date")
+    df_cycles = prepare_ml_history(df_cycles)
 
     # P0-2 贝叶斯收缩个性化统计：
     # 基于过滤后的全部历史（LIMIT 50 内）统计，
@@ -238,6 +231,19 @@ def get_latest_features_for_user(user_id: int) -> tuple[dict[str, float | int], 
 
     features = build_prediction_feature_row(df_cycles, last_start_date)
     return features, last_start_date, n_complete_cycles, user_mean
+
+
+def prepare_ml_history(history: pd.DataFrame) -> pd.DataFrame:
+    """Match the API's latest-50 query followed by feature-range filtering."""
+    frame = _normalize_cycle_frame(history)
+    if frame.empty:
+        return frame
+    frame = frame.sort_values("start_date").tail(50)
+    return frame.loc[
+        frame["cycle_length"].between(MIN_CYCLE_LENGTH, MAX_CYCLE_LENGTH)
+        & (frame["bleeding_days"].isna()
+           | frame["bleeding_days"].between(MIN_BLEEDING_DAYS, MAX_BLEEDING_DAYS))
+    ]
 
 
 def build_prediction_feature_row(history: pd.DataFrame, prediction_start: date) -> dict[str, float]:

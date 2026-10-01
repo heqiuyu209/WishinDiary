@@ -28,9 +28,9 @@ class CyclePredictionService:
     # w = 1 / (1 + n / K)，n 为用户完整周期数（样本越多越信任个人均值）。
     SHRINKAGE_K = 4.0
 
-    def __init__(self):
+    def __init__(self, *, model=None):
         self.model_sha256 = None
-        self.model = self._load_model()
+        self.model = model if model is not None else self._load_model()
 
     def _load_model(self):
         """Load a signed skops model; never execute arbitrary pickle payloads."""
