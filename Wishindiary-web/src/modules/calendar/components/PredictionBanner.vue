@@ -20,25 +20,26 @@ defineProps<{ prediction: PredictionResponseData | null }>();
           <span class="text-xl">🤖</span>
         </div>
         <div>
-          <p class="text-xs font-bold text-gray-400 uppercase">AI 周期预估</p>
+          <p class="text-xs font-bold text-gray-400 uppercase">周期预估</p>
           <p class="text-sm text-gray-800 font-medium">
-            下次经期:
+            下次经期预计开始日:
             <span class="text-rose-600 font-bold bg-white/70 px-2 py-0.5 rounded-md">
               {{ prediction.next_period_start }}
             </span>
           </p>
           <p class="text-xs text-gray-500 mt-1">
-            预测周期:
+            预计周期长度:
             <span class="font-bold text-gray-700">{{ prediction.predicted_cycle_length }} 天</span>
           </p>
+          <p class="mt-1 text-xs text-gray-500">预计日期可能提前或延后，请按实际情况记录。</p>
         </div>
       </div>
       <div
         class="relative text-right w-full md:w-auto border-t md:border-t-0 md:border-l border-rose-100/60 pt-3 md:pt-0 md:pl-6"
       >
-        <p class="text-xs font-bold text-gray-400 uppercase">排卵与易孕期</p>
+        <p class="text-xs font-bold text-gray-400 uppercase">排卵日估计</p>
         <p class="text-sm text-gray-800 font-medium">
-          核心排卵日:
+          估算排卵日:
           <span class="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-md">
             {{ prediction.ovulation_date }}
           </span>

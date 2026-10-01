@@ -46,7 +46,7 @@ const emit = defineEmits<{
     >
       <div class="flex items-center justify-between gap-3">
         <span class="text-xs font-medium">
-          {{ previewMode === 'custom' ? '正在预览区间' : '系统预估区间' }}
+          {{ previewMode === 'custom' ? '本次记录预览' : '预计经期持续时间' }}
         </span>
         <span
           class="text-[11px] font-semibold bg-white px-2 py-0.5 rounded-full border border-amber-100"

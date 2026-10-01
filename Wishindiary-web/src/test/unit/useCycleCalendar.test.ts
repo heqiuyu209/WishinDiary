@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, nextTick, type App } from 'vue';
 import type { AxiosResponse } from 'axios';
 import { useCycleCalendar } from '../../modules/calendar/composables/useCycleCalendar';
-import type { StatusResponse, StatsResponse, CycleRead } from '../../types/api';
+import type {
+  StatusResponse,
+  StatsResponse,
+  CycleRead,
+  PredictionResponseData,
+} from '../../types/api';
+import { formatDate } from '../../shared/utils/date';
 
 vi.mock('../../modules/dashboard/api', () => ({
   getPredictionApi: vi.fn(),
@@ -64,14 +70,27 @@ function withSetup<T>(composable: () => T): { app: App; result: T | undefined } 
   return { app, result };
 }
 
-async function makeCalendar() {
-  getPredictionApiMock.mockResolvedValue(ok({ status: 'success', prediction: null }) as never);
+async function makeCalendar(prediction: PredictionResponseData | null = null) {
+  getPredictionApiMock.mockResolvedValue(ok({ status: 'success', prediction }) as never);
   getStatsApiMock.mockResolvedValue(ok(stats) as never);
   const { app, result } = withSetup(() => useCycleCalendar());
   await new Promise((r) => setTimeout(r, 0));
   await nextTick();
   return { app, calendar: result! };
 }
+
+const predictionFixture = (nextEnd = '2026-11-04'): PredictionResponseData => ({
+  last_period_start: '2026-10-01',
+  predicted_cycle_length: 30,
+  next_period_start: '2026-10-31',
+  next_period_end: nextEnd,
+  ovulation_date: '2026-10-17',
+  fertile_window_start: '2026-10-12',
+  fertile_window_end: '2026-10-18',
+  features_info: 'test',
+  model_version: 'test',
+  disclaimer: 'test',
+});
 
 describe('useCycleCalendar', () => {
   beforeEach(() => {
@@ -217,6 +236,41 @@ describe('useCycleCalendar', () => {
       fatigue: 0,
     });
 
+    app.unmount();
+  });
+
+  it.each(['2026-11-04', '2026-12-31', ''])(
+    '只标记预计开始日，结束字段为 %s 时也不会涂成跨月区间',
+    async (nextEnd) => {
+      const { app, calendar } = await makeCalendar(predictionFixture(nextEnd));
+      const predicted = calendar.calendarAttributes.value.filter(
+        (attr) => attr.customData?.state === 'predicted-start',
+      );
+      expect(predicted).toHaveLength(1);
+      const day = predicted[0]!.dates;
+      expect(day).toBeInstanceOf(Date);
+      expect(formatDate(day as Date)).toBe('2026-10-31');
+
+      // 已记录的五天经期继续使用实际起止日期，不能被改成单日。
+      const recorded = calendar.calendarAttributes.value.find(
+        (attr) => attr.customData?.cycle_id === closedCycle.cycle_id,
+      );
+      expect(recorded?.dates).toEqual({ start: new Date(2020, 0, 1), end: new Date(2020, 0, 5) });
+      app.unmount();
+    },
+  );
+
+  it('缺少结束日期与易孕期时，远期预计开始日仍在可浏览日期内', async () => {
+    const prediction = {
+      ...predictionFixture(''),
+      next_period_start: '2099-01-31',
+      fertile_window_start: '',
+      fertile_window_end: '',
+    };
+    const { app, calendar } = await makeCalendar(prediction);
+    expect(calendar.calendarMaxDate.value.getTime()).toBeGreaterThanOrEqual(
+      new Date(2099, 0, 31).getTime(),
+    );
     app.unmount();
   });
 });
