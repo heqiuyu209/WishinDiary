@@ -19,8 +19,8 @@ test('跨月记录经期开始并结束一个周期', async ({ page }) => {
     .click();
   await page.getByRole('button', { name: '标记开始' }).click();
 
-  // 开始成功后出现系统预估/历史平均区间预览。
-  await expect(page.getByText(/系统预估区间|历史平均/).first()).toBeVisible({
+  // 开始成功后显示经期持续时间预览，不与下次预计开始日混淆。
+  await expect(page.getByText('预计经期持续时间', { exact: true })).toBeVisible({
     timeout: 15_000,
   });
 
