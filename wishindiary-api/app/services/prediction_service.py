@@ -14,16 +14,15 @@
 import logging
 import statistics
 import time
-from datetime import timedelta
 
 from app.core.database import transaction
 from app.core.errors import AppError
 from app.features import get_latest_features_for_user
+from app.ml.basic_prediction import build_basic_prediction
 from app.ml.contract import MODEL_VERSION
 from app.repositories.cycle_repository import get_user_latest_cycle, get_user_valid_cycles
 from app.repositories.prediction_log_repository import (
-    get_existing_pending_prediction,
-    insert_pending_prediction,
+    insert_prediction_snapshot,
 )
 from app.services.cycle_prediction_service import CyclePredictionService
 
@@ -33,18 +32,6 @@ logger = logging.getLogger(__name__)
 _MIN_PLAUSIBLE_LENGTH = 15
 _MAX_PLAUSIBLE_LENGTH = 45
 _INSUFFICIENT_DATA_MESSAGE = "数据不足：请至少记录 4 个完整周期后再试"
-
-# 基础统计量预测的医学边界
-_BASIC_MIN_LENGTH = 21
-_BASIC_MAX_LENGTH = 45
-_BASIC_CI_FLOOR = 15
-_BASIC_CI_CEIL = 45
-
-_DISCLAIMER = (
-    "本预测由统计模型生成，仅供参考，不能用于诊断、治疗、避孕或紧急医疗判断。"
-    "如有健康疑虑，请咨询专业医疗人员。"
-)
-
 
 def build_data_quality_warnings(features: dict) -> list[str]:
     """基于最近 3 条完整周期长度，检测疑似漏记/重复标识的数据质量问题。
@@ -66,8 +53,6 @@ def build_data_quality_warnings(features: dict) -> list[str]:
     # 基线只取医学合理范围（15-45）内的记录，避免超长间隔污染常规水平；
     # 若合理记录不足，回退到全部样本中位数。
     plausible = [x for x in lengths if _MIN_PLAUSIBLE_LENGTH <= x <= _MAX_PLAUSIBLE_LENGTH]
-    import statistics
-
     baseline = statistics.median(plausible) if plausible else statistics.median(lengths)
 
     warnings: list[str] = []
@@ -108,56 +93,7 @@ def build_basic_stats_prediction(user_id: int) -> dict | None:
         logger.exception("basic stats prediction query failed for user_id=%s", user_id)
         raise AppError(500, "internal_error", "特征提取失败，请稍后重试")
 
-    lengths = [float(r["cycle_length"]) for r in rows if r.get("cycle_length") is not None]
-    if not lengths or latest is None:
-        return None
-
-    # 医学合理范围（与补录校验一致的宽松口径 15~60）内的长度作为个人基线
-    plausible = [x for x in lengths if _MIN_PLAUSIBLE_LENGTH <= x <= 60.0]
-    if plausible:
-        personal_mean = sum(plausible) / len(plausible)
-        std = statistics.pstdev(plausible) if len(plausible) >= 2 else 0.0
-    else:
-        personal_mean = lengths[-1]
-        std = 0.0
-
-    last_start = latest["start_date"]
-    if hasattr(last_start, "to_pydatetime"):  # MySQL DATE → datetime.date
-        last_start = last_start.to_pydatetime().date()
-
-    pred_length = int(round(personal_mean))
-    raw_predicted = pred_length
-    pred_length = max(_BASIC_MIN_LENGTH, min(pred_length, _BASIC_MAX_LENGTH))
-
-    next_start = last_start + timedelta(days=pred_length)
-    ovulation_date = next_start - timedelta(days=14)
-
-    ci_low = float(max(_BASIC_CI_FLOOR, round(pred_length - std, 2)))
-    ci_high = float(min(_BASIC_CI_CEIL, round(pred_length + std, 2)))
-
-    return {
-        "last_period_start": last_start.isoformat(),
-        "predicted_cycle_length": pred_length,
-        "raw_predicted_cycle_length": raw_predicted,
-        "next_period_start": next_start.isoformat(),
-        "next_period_end": (next_start + timedelta(days=4)).isoformat(),
-        "ovulation_date": ovulation_date.isoformat(),
-        "fertile_window_start": (ovulation_date - timedelta(days=5)).isoformat(),
-        "fertile_window_end": (ovulation_date + timedelta(days=1)).isoformat(),
-        "medical_guardrail_note": (
-            f"基于个人经期历史的基础统计量预测（使用 {len(plausible) or len(lengths)} "
-            "条完整周期长度），结果已限制在 21-45 天医学正常范围。"
-        ),
-        "data_quality_warnings": None,
-        "features_info": "个人基础统计量模式（数据不足 4 个完整周期时启用）",
-        "model_version": MODEL_VERSION,
-        "confidence_interval": {
-            "low": ci_low,
-            "high": ci_high,
-            "note": "基于个人完整周期长度的基础统计区间（样本较少，仅供参考）",
-        },
-        "disclaimer": _DISCLAIMER,
-    }
+    return build_basic_prediction(rows, latest["start_date"] if latest else None)
 
 
 class PredictionService:
@@ -264,13 +200,14 @@ class PredictionService:
         try:
             with transaction() as connection:
                 with connection.cursor() as cursor:
-                    pending = get_existing_pending_prediction(
-                        cursor, user_id, prediction_result["next_period_start"]
+                    insert_prediction_snapshot(
+                        cursor, user_id, prediction_result,
+                        method=("basic_stats" if features_dict is None else
+                                "rf_personalized" if self._predictor.model is not None else
+                                "mean_personalized"),
+                        model_sha256=getattr(self._predictor, "model_sha256", None)
+                        if features_dict is not None else None,
                     )
-                    if pending is None:
-                        insert_pending_prediction(
-                            cursor, user_id, prediction_result["next_period_start"]
-                        )
         except Exception:
             logger.exception("prediction log write failed for user_id=%s", user_id)
 

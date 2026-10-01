@@ -12,6 +12,7 @@ import pymysql
 from app.core.database import transaction
 from app.core.errors import AppError
 from app.repositories import get_user_cycle_summary
+from app.repositories.prediction_log_repository import VALID_SNAPSHOT_OUTCOME
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +35,17 @@ class ReportService:
 
                     # AI 预测 MAE（实际日期 vs 预测日期）
                     cursor.execute(
-                        """
+                        f"""
                         SELECT AVG(ABS(DATEDIFF(actual_date, predicted_date))) AS mae_error
                         FROM prediction_logs
-                        WHERE user_id = %s AND actual_date IS NOT NULL
-                          AND predicted_date IS NOT NULL
+                        WHERE user_id = %s AND {VALID_SNAPSHOT_OUTCOME}
                         """,
                         (user_id,),
                     )
                     error_row = cursor.fetchone()
                     real_mae = (
                         round(error_row["mae_error"], 1)
-                        if error_row and error_row["mae_error"]
+                        if error_row and error_row["mae_error"] is not None
                         else None
                     )
 
@@ -98,12 +98,11 @@ class ReportService:
 
                     # 最近一次预测对账（最靠近当前的实际日期 vs 当时预测）
                     cursor.execute(
-                        """
+                        f"""
                         SELECT predicted_date, actual_date,
                                ABS(DATEDIFF(actual_date, predicted_date)) AS abs_err
                         FROM prediction_logs
-                        WHERE user_id = %s AND actual_date IS NOT NULL
-                          AND predicted_date IS NOT NULL
+                        WHERE user_id = %s AND {VALID_SNAPSHOT_OUTCOME}
                         ORDER BY actual_date DESC
                         LIMIT 1
                         """,

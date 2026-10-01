@@ -104,7 +104,56 @@ export interface ResearchSummary extends StatusResponse {
     };
     metrics?: Record<string, Record<string, number>>;
   };
+  forecast_evaluation?: ForecastEvaluation;
   recommendations: string[];
+}
+
+export type ForecastProtocol = 'existing_users' | 'unseen_users';
+export type ForecastMethod = 'online_pipeline' | 'mean3' | 'median3' | 'ewma';
+export type ForecastGroup = 'history' | 'volatility' | 'missing_bleeding';
+
+export interface ForecastScores {
+  samples: number;
+  models: Partial<
+    Record<
+      ForecastMethod,
+      {
+        mae?: number;
+        rmse?: number;
+        bias_days?: number;
+        hit_rate_within_2d?: number;
+        hit_rate_within_3d?: number;
+      }
+    >
+  >;
+}
+
+export interface ForecastEvaluation {
+  available: boolean;
+  message?: string;
+  pipeline_matches_report?: boolean;
+  generated_at?: string;
+  git_commit?: string;
+  cutoff?: string;
+  dataset?: { source: string; total_cycles: number; n_users: number };
+  protocols?: Partial<
+    Record<
+      ForecastProtocol,
+      ForecastScores & {
+        n_splits?: number;
+        training_samples?: number;
+        excluded_unseen_cases?: number;
+        skipped_empty_folds?: number;
+        intervals?: Partial<
+          Record<
+            'rf_personalized' | 'basic_stats',
+            { samples: number; coverage_pct?: number; mean_width_days?: number }
+          >
+        >;
+        groups?: Partial<Record<ForecastGroup, (ForecastScores & { label: string })[]>>;
+      }
+    >
+  >;
 }
 
 // ---------------------------------------------------------------------------
