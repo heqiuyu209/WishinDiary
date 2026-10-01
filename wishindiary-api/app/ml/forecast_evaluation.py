@@ -25,6 +25,7 @@ from app.services.cycle_prediction_service import CyclePredictionService
 MODEL_KEYS = ("online_pipeline", "mean3", "median3", "ewma")
 RF_PARAMETERS = {"n_estimators": 200, "random_state": 42, "max_depth": 8}
 EWMA_ALPHA = 0.5
+MAX_TIME_WINDOWS = 60
 
 
 @dataclass
@@ -106,6 +107,7 @@ def predict_case(case: ForecastCase, predictor: CyclePredictionService) -> dict:
     def bounded(value):
         return max(21, min(45, int(round(float(value)))))
     return {
+        "anchor": case.anchor.date().isoformat(),
         "actual": case.actual_length,
         "predictions": {
             "online_pipeline": prediction["predicted_cycle_length"],
@@ -138,7 +140,18 @@ def _point_scores(records: list[dict]) -> dict:
     return {"samples": len(records), "models": models}
 
 
-def summarize_forecasts(records: list[dict]) -> dict:
+def _bucket_scores(records: list[dict], coverage: float | None = None) -> dict:
+    result = _point_scores(records)
+    if coverage is not None:
+        methods = summarize_interval_calibration(records, [], coverage)["methods"]
+        result["interval_comparison"] = {
+            method: {key: value for key, value in scores.items() if key != "fits"}
+            for method, scores in methods.items()
+        }
+    return result
+
+
+def summarize_forecasts(records: list[dict], coverage: float | None = None) -> dict:
     summary = _point_scores(records)
     intervals = {}
     for method in ("rf_personalized", "basic_stats"):
@@ -165,7 +178,7 @@ def summarize_forecasts(records: list[dict]) -> dict:
                              ("缺失 ≥50%", lambda r: r["missing_bleeding_ratio"] >= 0.5)),
     }
     summary["groups"] = {
-        axis: [{"label": label, **_point_scores([row for row in records if include(row)])}
+        axis: [{"label": label, **_bucket_scores([row for row in records if include(row)], coverage)}
                for label, include in definitions]
         for axis, definitions in buckets.items()
     }
@@ -175,7 +188,7 @@ def summarize_forecasts(records: list[dict]) -> dict:
 def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.2,
                           n_splits: int = 5, cutoff=None, model_factory=None,
                           calibration_fraction: float = 0.0, calibration_cutoff=None,
-                          target_coverage: float = 0.9) -> dict:
+                          target_coverage: float = 0.9, time_window_days: int | None = None) -> dict:
     """Evaluate seen/unseen users with training labels available at a fixed cutoff.
 
     Unseen means absent from global RF training, not necessarily lacking personal
@@ -186,6 +199,11 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
     if not 0 <= calibration_fraction < 1 - test_fraction:
         raise ValueError("Invalid calibration fraction")
     calibrated = calibration_fraction > 0 or calibration_cutoff is not None
+    if time_window_days is not None:
+        if type(time_window_days) is not int or not 1 <= time_window_days <= 365:
+            raise ValueError("Time window days must be an integer between 1 and 365")
+        if not calibrated:
+            raise ValueError("Time windows require an independent calibration segment")
     if calibrated:
         fit_interval_calibrators([], target_coverage)  # Validate the declared target before fitting.
     cases = build_forecast_cases(raw_cycles)
@@ -215,6 +233,26 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
     test_cases = [case for case in cases if case.anchor >= cutoff]
     if not train_cases or not test_cases:
         raise ValueError("The cutoff leaves no usable training or test cases")
+    windows = []
+    if time_window_days is not None:
+        count = (max(case.anchor for case in test_cases) - cutoff).days // time_window_days + 1
+        if count > MAX_TIME_WINDOWS:
+            raise ValueError("More than 60 time windows; increase time window days")
+        windows = [(cutoff + pd.Timedelta(days=index * time_window_days),
+                    cutoff + pd.Timedelta(days=(index + 1) * time_window_days))
+                   for index in range(count)]
+
+    def summarize(records):
+        result = summarize_forecasts(records, target_coverage if windows else None)
+        if windows:
+            # Partition the already predicted cases; never refit using a window's outcomes.
+            result["time_windows"] = [
+                {"start": start.date().isoformat(), "end_exclusive": end.date().isoformat(),
+                 **_bucket_scores([row for row in records if start <= pd.Timestamp(row["anchor"]) < end],
+                                  target_coverage)}
+                for start, end in windows
+            ]
+        return result
     factory = model_factory or (lambda: RandomForestRegressor(**RF_PARAMETERS))
 
     def fit(selected):
@@ -232,7 +270,7 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
             target_coverage,
         )
         existing = apply_interval_calibration(existing, existing_fits)
-    existing_summary = summarize_forecasts(existing)
+    existing_summary = summarize(existing)
     existing_summary["training_samples"] = len(train_cases)
     existing_summary["excluded_unseen_cases"] = sum(case.user_id not in seen_users for case in test_cases)
     if calibrated:
@@ -262,7 +300,7 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
                 unseen_fits.append(fits)
             unseen.extend(predicted)
             folds += 1
-    unseen_summary = summarize_forecasts(unseen)
+    unseen_summary = summarize(unseen)
     unseen_summary["n_splits"] = folds
     unseen_summary["skipped_empty_folds"] = empty_folds
     if calibrated:
@@ -286,5 +324,11 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
                 (case.anchor + pd.Timedelta(days=case.actual_length) for case in calibration_cases),
                 default=pd.NaT,
             ).date().isoformat() if calibration_cases else None,
+        }
+    if windows:
+        result["time_windows"] = {
+            "window_days": time_window_days, "date_basis": "forecast_anchor",
+            "last_candidate_date": max(case.anchor for case in test_cases).date().isoformat(),
+            "end_exclusive": windows[-1][1].date().isoformat(),
         }
     return result
