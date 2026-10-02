@@ -119,6 +119,7 @@ def build_cycle_feature_matrix(
     核心特征工程函数。
     把纵向的周期序列，转化为带有"滑动窗口"特征的矩阵。
     """
+    calendar_provenance = df_cycles.attrs.get("calendar_provenance", "recorded_calendar")
     df_cycles = _normalize_cycle_frame(df_cycles)
     df_cycles = df_cycles.sort_values(by=["user_id", "start_date"]).reset_index(drop=True).copy()
     df_cycles["bleeding_days"] = df_cycles["bleeding_days"].fillna(5)
@@ -146,9 +147,15 @@ def build_cycle_feature_matrix(
     # 时间特征（P0-1）：start_month 改为 sin/cos 循环编码，
     # 避免 1 月与 12 月被当成"相距最远"而产生断崖（月份是循环变量）。
     df_cycles["start_date"] = pd.to_datetime(df_cycles["start_date"])
-    _month_rad = 2.0 * math.pi * (df_cycles["start_date"].dt.month - 1.0) / 12.0
-    df_cycles["start_month_sin"] = _month_rad.apply(math.sin)
-    df_cycles["start_month_cos"] = _month_rad.apply(math.cos)
+    if calendar_provenance == "synthetic_cycle_order":
+        # Preserve the ten-column inference contract without learning invented seasons.
+        df_cycles["start_month_sin"] = 0.0
+        df_cycles["start_month_cos"] = 0.0
+    else:
+        _month_rad = 2.0 * math.pi * (df_cycles["start_date"].dt.month - 1.0) / 12.0
+        df_cycles["start_month_sin"] = _month_rad.apply(math.sin)
+        df_cycles["start_month_cos"] = _month_rad.apply(math.cos)
+    df_cycles["calendar_provenance"] = calendar_provenance
 
     features = [
         "lag_1_length", "lag_2_length", "lag_3_length",

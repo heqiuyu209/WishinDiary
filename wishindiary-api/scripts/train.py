@@ -149,8 +149,8 @@ def load_fedcycle_csv(csv_path: str) -> tuple[pd.DataFrame, pd.DataFrame]:
       - ClientID        -> user_id
       - LengthofCycle   -> cycle_length（目标变量；绝不允许进特征，只在 build 阶段作为 target）
       - LengthofMenses  -> bleeding_days（缺失为 NaN，由 build 内 fillna(5) 统一处理）
-      - start_date      -> 合成日历日期：按用户内周期序号用前一周期长度累加得到，
-                           保留周期间的时序与跨月季节性（用于 start_month_sin/cos）。
+      - start_date      -> 只用于用户内排序的合成占位日期，不能恢复真实月份。
+                           calendar_provenance 标记 synthetic_cycle_order，停用月份特征。
 
     数据坑处理（与数据库数据口径保持一致）：
       - (ClientID, CycleNumber) 重复行：优先保留"非空字段最多"的行，其次取首行；
@@ -207,7 +207,7 @@ def load_fedcycle_csv(csv_path: str) -> tuple[pd.DataFrame, pd.DataFrame]:
         }
     )
 
-    # 5) 合成 start_date：用户内按前一周期长度累加，保留时序与跨月季节性
+    # 5) 合成 start_date 只保留用户内顺序，不代表真实日历时间或季节性。
     start_dates = []
     base = pd.Timestamp("2020-01-01")
     for _, g in cycles.groupby("user_id", sort=True):
@@ -229,6 +229,7 @@ def load_fedcycle_csv(csv_path: str) -> tuple[pd.DataFrame, pd.DataFrame]:
         )
     )
     cycles = cycles[healthy_mask].reset_index(drop=True)
+    cycles.attrs["calendar_provenance"] = "synthetic_cycle_order"
 
     print(
         f"[Fehring CSV] 原始行 {n_raw} -> 去重剔除 {dropped_total} 行(含重复 {dup_before}) "
@@ -249,6 +250,7 @@ def train_and_evaluate(synthetic_only: bool = False, csv_path: str | None = None
     elif synthetic_only:
         print("ℹ️ 使用纯合成数据训练，不读取真实用户数据库")
         raw_cycles, raw_logs = build_synthetic_training_data()
+        raw_cycles.attrs["calendar_provenance"] = "synthetic_calendar"
     else:
         print("ℹ️ 从数据库加载数据训练")
         raw_cycles, raw_logs = load_cycle_training_data()
@@ -274,6 +276,7 @@ def train_and_evaluate(synthetic_only: bool = False, csv_path: str | None = None
         else:
             print(f"⚠️ 真实样本仅 {real_n} 个（阈值 {MIN_REAL_SAMPLES}），使用干净合成数据兜底训练...")
             synth_cycles, synth_logs = build_synthetic_training_data()
+            synth_cycles.attrs["calendar_provenance"] = "synthetic_calendar"
             X_synth, y_synth, meta_synth = build_cycle_feature_matrix(synth_cycles, synth_logs)
             x_parts.append(X_synth)
             y_parts.append(y_synth)
@@ -340,12 +343,17 @@ def train_and_evaluate(synthetic_only: bool = False, csv_path: str | None = None
 
     # ---------- 生成评估报告与训练元数据 ----------
     metadata = _collect_env_metadata()
+    metadata["feature_contract"]["disabled_features"] = (
+        ["start_month_sin", "start_month_cos"] if csv_path else []
+    )
     if csv_path:
         data_source = "fedcycle_csv"
         data_notes = (
             "真实 Fehring 2012 Marquette NFP 数据集；按 ClientID 分组交叉验证，"
             "去重规则=非空字段最多优先、其次取首行；(ClientID,CycleNumber) 重复行已剔除；"
             "空格字符串转 NaN；Age 等近空列剔除；LengthofCycle 仅作为目标变量，绝不进特征。"
+            "该格式无真实开始日期：占位日期仅用于用户内排序，月份特征固定为零，"
+            "不执行真实日历时间留出验证。"
         )
     elif synthetic_only:
         data_source = "synthetic"
@@ -362,6 +370,8 @@ def train_and_evaluate(synthetic_only: bool = False, csv_path: str | None = None
             "real_samples": int(real_n),
             "synthetic_samples": int(len(X) - real_n),
             "n_users": int(groups.nunique()) if groups is not None else 1,
+            "calendar_provenance": sorted(feature_matrix["calendar_provenance"].unique().tolist()),
+            "calendar_features_enabled": not bool(csv_path),
         },
         "holdout": {
             "test_samples": int(len(y_test)),
@@ -416,21 +426,27 @@ def train_and_evaluate(synthetic_only: bool = False, csv_path: str | None = None
             print(f"⚠️ 交叉验证失败：{exc}")
             report["group_kfold"] = {"n_splits": 0, "error": str(exc)}
 
-    # 时间切分验证（全部样本按 start_date 排序）
-    try:
-        tr_idx, te_idx = build_temporal_holdout_split(feature_matrix, test_fraction=0.2)
-        if len(te_idx) > 0:
-            _model = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=8)
-            _model.fit(X.iloc[tr_idx], y.iloc[tr_idx])
-            _pred = _model.predict(X.iloc[te_idx])
-            report["temporal_holdout"] = {
-                "test_samples": int(len(te_idx)),
-                "mae": round(float(mean_absolute_error(y.iloc[te_idx], _pred)), 4),
-                "rmse": round(float(root_mean_squared_error(y.iloc[te_idx], _pred)), 4),
-            }
-    except Exception as exc:
-        print(f"⚠️ 时间切分验证失败：{exc}")
-        report["temporal_holdout"] = {"error": str(exc)}
+    # 用户内占位日期不能当作跨用户共享的真实日历边界。
+    if csv_path:
+        report["temporal_holdout"] = {
+            "status": "not_applicable",
+            "reason": "CSV 无真实日历日期；合成周期顺序不支持真实时间留出验证。",
+        }
+    else:
+        try:
+            tr_idx, te_idx = build_temporal_holdout_split(feature_matrix, test_fraction=0.2)
+            if len(te_idx) > 0:
+                _model = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=8)
+                _model.fit(X.iloc[tr_idx], y.iloc[tr_idx])
+                _pred = _model.predict(X.iloc[te_idx])
+                report["temporal_holdout"] = {
+                    "test_samples": int(len(te_idx)),
+                    "mae": round(float(mean_absolute_error(y.iloc[te_idx], _pred)), 4),
+                    "rmse": round(float(root_mean_squared_error(y.iloc[te_idx], _pred)), 4),
+                }
+        except Exception as exc:
+            print(f"⚠️ 时间切分验证失败：{exc}")
+            report["temporal_holdout"] = {"error": str(exc)}
 
     # 与旧模型（合成模型）评估对比：在报告被本次覆盖前读取旧 JSON 指标
     try:

@@ -95,12 +95,15 @@ export interface ResearchSummary extends StatusResponse {
     git_commit?: string;
     model_version?: string;
     model_matches_report?: boolean | null;
+    temporal_holdout_status?: 'available' | 'unavailable' | 'not_applicable';
     dataset?: {
       source: string;
       total_samples: number;
       real_samples: number;
       synthetic_samples: number;
       n_users: number;
+      calendar_provenance?: string[];
+      calendar_features_enabled?: boolean | null;
     };
     metrics?: Record<string, Record<string, number>>;
   };

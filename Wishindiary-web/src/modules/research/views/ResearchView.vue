@@ -36,7 +36,12 @@ const metricRows = computed(() => {
     { label: '分用户五折 · 随机森林', mae: metrics.group_kfold?.mae },
     { label: '同五折 · 最近三次均值', mae: metrics.group_kfold?.baseline_mean3_mae },
     { label: '时间留出 · 随机森林', mae: metrics.temporal_holdout?.mae },
-  ];
+  ].map((row) => ({
+    ...row,
+    notApplicable:
+      row.label.startsWith('时间留出') &&
+      summary.value?.evaluation.temporal_holdout_status === 'not_applicable',
+  }));
 });
 const forecastProtocol = ref<ForecastProtocol>('existing_users');
 const forecastGroup = ref<ForecastGroup>('history');
@@ -186,6 +191,13 @@ onMounted(() => void load());
             </span>
           </div>
           <p
+            v-if="summary.evaluation.temporal_holdout_status === 'not_applicable'"
+            role="status"
+            class="mt-3 text-sm text-amber-700"
+          >
+            当前 CSV 只有周期顺序，月份特征已停用；真实日历时间留出不适用。
+          </p>
+          <p
             v-if="summary.evaluation.model_matches_report === false"
             role="alert"
             class="mt-3 text-sm text-amber-700"
@@ -205,7 +217,15 @@ onMounted(() => void load());
             <tbody>
               <tr v-for="row in metricRows" :key="row.label" class="border-t border-gray-100">
                 <td class="py-3">{{ row.label }}</td>
-                <td>{{ row.mae === undefined ? '暂无结果' : row.mae.toFixed(2) }}</td>
+                <td>
+                  {{
+                    row.notApplicable
+                      ? '不适用'
+                      : row.mae === undefined
+                        ? '暂无结果'
+                        : row.mae.toFixed(2)
+                  }}
+                </td>
               </tr>
             </tbody>
           </table>

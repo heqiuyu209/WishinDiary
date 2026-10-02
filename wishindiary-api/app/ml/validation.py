@@ -26,6 +26,10 @@ def build_temporal_holdout_split(feature_matrix: pd.DataFrame, test_fraction: fl
     """
     if not 0 < test_fraction < 1:
         raise ValueError("test_fraction must be between 0 and 1")
+    if (feature_matrix.attrs.get("calendar_provenance") == "synthetic_cycle_order"
+            or ("calendar_provenance" in feature_matrix
+                and feature_matrix["calendar_provenance"].eq("synthetic_cycle_order").any())):
+        raise ValueError("Cycle-order placeholders cannot be used for calendar-time validation")
     if len(feature_matrix) < 2:
         raise ValueError("Temporal validation requires at least two samples")
     dates = pd.to_datetime(feature_matrix["start_date"], errors="coerce")
