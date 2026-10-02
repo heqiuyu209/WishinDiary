@@ -86,8 +86,13 @@ export function useCycleCalendar() {
     return addDays(latestForecast, 35);
   });
 
-  const findLatestOpenCycle = (list: CycleRead[]): CycleRead | null =>
-    [...list].reverse().find((cycle) => cycle.start_date && !cycle.end_date) || null;
+  const findLatestOpenCycle = (list: CycleRead[]): CycleRead | null => {
+    const latest = [...list]
+      .filter((cycle) => cycle.start_date)
+      .sort((a, b) => a.start_date.localeCompare(b.start_date))
+      .at(-1);
+    return latest && !latest.end_date ? latest : null;
+  };
 
   const findSelectedClosedCycle = (date: Date, list: CycleRead[]): CycleRead | null => {
     const target = toLocalDate(date);

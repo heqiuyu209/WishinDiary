@@ -114,6 +114,23 @@ describe('useCycleCalendar', () => {
     app.unmount();
   });
 
+  it('最新经期已结束时，不把历史漏记结束日当成开放周期', async () => {
+    const { app, calendar } = await makeCalendar();
+    getStatsApiMock.mockResolvedValue(
+      ok({
+        ...stats,
+        cycles: [
+          { ...closedCycle, end_date: null, bleeding_days: null },
+          { ...openCycle, end_date: '2026-10-05', bleeding_days: 5 },
+        ],
+      }) as never,
+    );
+    await calendar.fetchData();
+    expect(calendar.openCycle.value).toBeNull();
+    expect(calendar.selectedPreviewMode.value).toBe('none');
+    app.unmount();
+  });
+
   it('选中日期落在已关闭周期内时定位该周期', async () => {
     const { app, calendar } = await makeCalendar();
 
