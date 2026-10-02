@@ -75,8 +75,19 @@ export function useCycleCalendar() {
   const cycles = ref<CycleRead[]>([]);
 
   const dailyForm = reactive<DailyFormData>(createDefaultDailyForm());
+  const dailyLogLoading = ref(false);
+  const dailyLogSaving = ref(false);
+  const dailyLogLoadError = ref(false);
+  const dailyLogLoadedDate = ref<string | null>(null);
 
   const isSelectedFuture = computed(() => isAfter(toLocalDate(selectedDate.value), today()));
+  const canSaveDailyLog = computed(
+    () =>
+      !isSelectedFuture.value &&
+      !dailyLogLoading.value &&
+      !dailyLogSaving.value &&
+      dailyLogLoadedDate.value === formatDate(selectedDate.value),
+  );
   const calendarMaxDate = computed(() => {
     const forecastStart = toLocalDate(prediction.value?.next_period_start);
     const fertileEnd = toLocalDate(prediction.value?.fertile_window_end);
@@ -272,14 +283,23 @@ export function useCycleCalendar() {
   };
 
   const saveLog = async () => {
+    if (!canSaveDailyLog.value) {
+      errorMsg.value = '请等待当天档案加载完成后再保存；加载失败时请重新加载。';
+      return;
+    }
+    const logDate = formatDate(selectedDate.value);
+    dailyLogSaving.value = true;
     try {
       const res = await saveDailyLogApi({
-        log_date: formatDate(selectedDate.value),
+        log_date: logDate,
         ...dailyForm,
+        symptom_levels: { ...dailyForm.symptom_levels },
       });
-      applySuccess(res, '打卡成功');
+      if (logDate === formatDate(selectedDate.value)) applySuccess(res, '打卡成功');
     } catch (err) {
-      handleRequestError(err, '保存失败');
+      if (logDate === formatDate(selectedDate.value)) handleRequestError(err, '保存失败');
+    } finally {
+      dailyLogSaving.value = false;
     }
   };
 
@@ -312,11 +332,18 @@ export function useCycleCalendar() {
   const loadDailyLogForDate = async (target: Date) => {
     const seq = ++dailyLogFetchSeq;
     const dateStr = formatDate(target);
+    dailyLogLoading.value = true;
+    dailyLogLoadedDate.value = null;
+    dailyLogLoadError.value = false;
+    Object.assign(dailyForm, createDefaultDailyForm());
     try {
       const res = await getDailyLogApi(dateStr);
       if (seq !== dailyLogFetchSeq) return; // 丢弃过期响应，防止快速切日期串台
       if (res.data?.status === 'success' && res.data.log) {
         fillDailyForm(res.data.log);
+        dailyLogLoadedDate.value = dateStr;
+      } else {
+        throw new Error('当天档案响应无效');
       }
     } catch (err) {
       if (seq !== dailyLogFetchSeq) return;
@@ -324,10 +351,16 @@ export function useCycleCalendar() {
       if (status === 404) {
         // 该日无记录：重置为默认表单
         Object.assign(dailyForm, createDefaultDailyForm());
+        dailyLogLoadedDate.value = dateStr;
+      } else {
+        dailyLogLoadError.value = true;
+        handleRequestError(err, '当天档案加载失败，请重新加载后再保存');
       }
-      // 其它错误静默处理，不打断用户
+    } finally {
+      if (seq === dailyLogFetchSeq) dailyLogLoading.value = false;
     }
   };
+  const reloadDailyLog = () => loadDailyLogForDate(selectedDate.value);
 
   const clearCycle = async (
     cycleId: number,
@@ -407,6 +440,10 @@ export function useCycleCalendar() {
     errorMsg,
     aiHealthAdvices,
     dailyForm,
+    dailyLogLoading,
+    dailyLogLoadError,
+    canSaveDailyLog,
+    reloadDailyLog,
     isSelectedFuture,
     calendarMaxDate,
     openCycle,

@@ -99,6 +99,7 @@ describe('useCycleCalendar', () => {
     logEndApiMock.mockReset();
     saveDailyLogApiMock.mockReset();
     getDailyLogApiMock.mockReset();
+    getDailyLogApiMock.mockRejectedValue({ response: { status: 404 } });
   });
 
   it('从 stats 识别最新开放周期并计算历史平均经期天数', async () => {
@@ -253,6 +254,110 @@ describe('useCycleCalendar', () => {
       fatigue: 0,
     });
 
+    app.unmount();
+  });
+
+  it('新日期加载期间以及 watch 尚未执行时，都不能保存旧日期内容', async () => {
+    const { app, calendar } = await makeCalendar();
+    calendar.dailyForm.journal_text = 'synthetic previous-day note';
+    let complete!: (value: Awaited<ReturnType<typeof getDailyLogApi>>) => void;
+    getDailyLogApiMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    calendar.selectedDate.value = new Date(2024, 0, 2);
+    await calendar.saveLog();
+    expect(saveDailyLogApiMock).not.toHaveBeenCalled();
+    await nextTick();
+    expect(calendar.dailyLogLoading.value).toBe(true);
+    expect(calendar.dailyForm.journal_text).toBe('');
+    await calendar.saveLog();
+    expect(saveDailyLogApiMock).not.toHaveBeenCalled();
+    complete({
+      data: {
+        status: 'success',
+        log: {
+          ...calendar.dailyForm,
+          log_date: '2024-01-02',
+          journal_text: 'synthetic target-day note',
+        },
+      },
+    } as Awaited<ReturnType<typeof getDailyLogApi>>);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calendar.canSaveDailyLog.value).toBe(true);
+    saveDailyLogApiMock.mockResolvedValue(ok({ status: 'success', message: 'ok' }) as never);
+    await calendar.saveLog();
+    expect(saveDailyLogApiMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        log_date: '2024-01-02',
+        journal_text: 'synthetic target-day note',
+      }),
+    );
+    app.unmount();
+  });
+
+  it('加载失败时阻止覆盖已有记录，重新加载后才能保存', async () => {
+    const { app, calendar } = await makeCalendar();
+    getDailyLogApiMock.mockRejectedValueOnce({ response: { status: 503 } });
+    calendar.selectedDate.value = new Date(2024, 0, 2);
+    await nextTick();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calendar.dailyLogLoadError.value).toBe(true);
+    await calendar.saveLog();
+    expect(saveDailyLogApiMock).not.toHaveBeenCalled();
+    await calendar.reloadDailyLog(); // 404 表示已确认该日尚无记录。
+    expect(calendar.canSaveDailyLog.value).toBe(true);
+    expect(calendar.dailyLogLoadError.value).toBe(false);
+    app.unmount();
+  });
+
+  it('快速切换日期时旧响应不能覆盖新日期，也不能提前解锁保存', async () => {
+    const { app, calendar } = await makeCalendar();
+    let finishOld!: (value: Awaited<ReturnType<typeof getDailyLogApi>>) => void;
+    let finishNew!: (value: Awaited<ReturnType<typeof getDailyLogApi>>) => void;
+    getDailyLogApiMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOld = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishNew = resolve;
+          }),
+      );
+    calendar.selectedDate.value = new Date(2024, 0, 2);
+    await nextTick();
+    calendar.selectedDate.value = new Date(2024, 0, 3);
+    await nextTick();
+    finishOld({
+      data: {
+        status: 'success',
+        log: {
+          ...calendar.dailyForm,
+          journal_text: 'stale synthetic note',
+        },
+      },
+    } as Awaited<ReturnType<typeof getDailyLogApi>>);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calendar.dailyLogLoading.value).toBe(true);
+    expect(calendar.canSaveDailyLog.value).toBe(false);
+    finishNew({
+      data: {
+        status: 'success',
+        log: {
+          ...calendar.dailyForm,
+          journal_text: 'current synthetic note',
+        },
+      },
+    } as Awaited<ReturnType<typeof getDailyLogApi>>);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calendar.dailyForm.journal_text).toBe('current synthetic note');
+    expect(calendar.canSaveDailyLog.value).toBe(true);
     app.unmount();
   });
 
