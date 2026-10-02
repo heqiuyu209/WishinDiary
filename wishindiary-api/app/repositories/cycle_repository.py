@@ -11,6 +11,16 @@ def get_user_valid_cycles(cursor, user_id: int):
     return cursor.fetchall()
 
 
+def get_recent_cycle_lengths(cursor, user_id: int):
+    """Read raw intervals for quality checks before model eligibility filtering."""
+    cursor.execute("""
+        SELECT cycle_length FROM cycles
+        WHERE user_id = %s AND cycle_length IS NOT NULL
+        ORDER BY start_date DESC LIMIT 3
+    """, (user_id,))
+    return cursor.fetchall()
+
+
 def get_unclosed_cycle_for_update(cursor, user_id: int):
     """只有最新周期未记录结束时，才把它视为当前开放周期。"""
     cursor.execute("""
