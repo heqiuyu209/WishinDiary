@@ -9,7 +9,7 @@ import bcrypt
 import jwt
 from datetime import datetime, timedelta, timezone
 from app.core.config import settings
-from app.core.database import get_db_connection
+from app.core.database import get_db_connection, transaction
 from app.core.audit import audit
 from app.schemas.auth import LoginRequest, RegisterRequest
 from app.repositories.cycle_repository import insert_cycle, recalculate_cycle_lengths
@@ -26,7 +26,7 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _issue_refresh_token(connection, user_id: int, client_ip: str | None) -> str:
+def _issue_refresh_token(connection, user_id: int, client_ip: str | None, *, commit: bool = True) -> str:
     """签发一个不透明 refresh token，明文仅经 HttpOnly Cookie 下发。
 
     有效期由 settings.REFRESH_TOKEN_EXPIRE_DAYS 控制；到期后服务端拒绝续期。
@@ -41,21 +41,22 @@ def _issue_refresh_token(connection, user_id: int, client_ip: str | None) -> str
             "VALUES (%s, %s, %s, %s)",
             (user_id, _hash_token(plain), expires_at, client_ip),
         )
-    connection.commit()
+    if commit:
+        connection.commit()
     return plain
 
 
-def _lookup_refresh_token(connection, token: str):
+def _lookup_refresh_token(connection, token: str, *, for_update: bool = False):
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT refresh_token_id, user_id, expires_at, revoked_at "
-            "FROM refresh_tokens WHERE token_hash = %s",
+            "FROM refresh_tokens WHERE token_hash = %s" + (" FOR UPDATE" if for_update else ""),
             (_hash_token(token),),
         )
         return cursor.fetchone()
 
 
-def _revoke_refresh_token(connection, refresh_token_id: int) -> None:
+def _revoke_refresh_token(connection, refresh_token_id: int, *, commit: bool = True) -> None:
     """服务端撤销：置 revoked_at，任何携带该 token 的后续请求都会被拒绝。"""
     with connection.cursor() as cursor:
         cursor.execute(
@@ -63,7 +64,8 @@ def _revoke_refresh_token(connection, refresh_token_id: int) -> None:
             "WHERE refresh_token_id = %s",
             (refresh_token_id,),
         )
-    connection.commit()
+    if commit:
+        connection.commit()
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
@@ -384,38 +386,37 @@ def refresh_access_token(
     client_ip = request.client.host if request.client else None
     if not refresh_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="缺少刷新令牌")
-    connection = None
     try:
-        connection = get_db_connection()
-        row = _lookup_refresh_token(connection, refresh_token)
-        if not row:
-            audit("auth.refresh.invalid", ip=client_ip, success=False)
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="刷新令牌无效")
-        user_id = int(row["user_id"])
-        if row["revoked_at"] is not None:
-            audit("auth.refresh.revoked", actor_user_id=user_id, ip=client_ip, success=False)
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="刷新令牌已被撤销")
-        expires_naive = row["expires_at"]
-        if expires_naive is not None and expires_naive.tzinfo is not None:
-            expires_naive = expires_naive.replace(tzinfo=None)
-        now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
-        if expires_naive <= now_naive:
-            audit("auth.refresh.expired", actor_user_id=user_id, ip=client_ip, success=False)
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="刷新令牌已过期，请重新登录")
+        with transaction() as connection:
+            # Locking read sees the committed revocation after another rotation finishes.
+            row = _lookup_refresh_token(connection, refresh_token, for_update=True)
+            if not row:
+                audit("auth.refresh.invalid", ip=client_ip, success=False)
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="刷新令牌无效")
+            user_id = int(row["user_id"])
+            if row["revoked_at"] is not None:
+                audit("auth.refresh.revoked", actor_user_id=user_id, ip=client_ip, success=False)
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="刷新令牌已被撤销")
+            expires_naive = row["expires_at"]
+            if expires_naive is not None and expires_naive.tzinfo is not None:
+                expires_naive = expires_naive.replace(tzinfo=None)
+            now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+            if expires_naive <= now_naive:
+                audit("auth.refresh.expired", actor_user_id=user_id, ip=client_ip, success=False)
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="刷新令牌已过期，请重新登录")
 
-        # 轮换：撤销旧 refresh token，签发新 access + 新 refresh
-        _revoke_refresh_token(connection, row["refresh_token_id"])
-        access_token = _build_access_token(user_id)
-        new_refresh = _issue_refresh_token(connection, user_id, client_ip)
+            # Revocation and replacement either commit together or roll back together.
+            _revoke_refresh_token(connection, row["refresh_token_id"], commit=False)
+            access_token = _build_access_token(user_id)
+            new_refresh = _issue_refresh_token(connection, user_id, client_ip, commit=False)
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT username FROM users WHERE user_id = %s", (user_id,))
+                user_row = cursor.fetchone()
+            if not user_row:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
+            username = user_row["username"]
+        # Publish credentials only after the transaction successfully commits.
         _set_auth_cookies(response, access_token, new_refresh)
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT username FROM users WHERE user_id = %s",
-                (user_id,),
-            )
-            user_row = cursor.fetchone()
-        username = user_row["username"] if user_row else None
         audit("auth.refresh.success", actor_user_id=user_id, username=username, ip=client_ip, success=True)
         return {"status": "success", "user_id": user_id, "username": username}
     except HTTPException:
@@ -426,6 +427,3 @@ def refresh_access_token(
     except Exception:
         logger.exception("Refresh failed for user_id")
         raise HTTPException(status_code=500, detail="刷新令牌失败，请稍后重试")
-    finally:
-        if connection is not None:
-            connection.close()

@@ -4,10 +4,14 @@ import hashlib
 import json
 import logging
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event, Lock
 
 from fastapi.testclient import TestClient
 
 from app.core import database
+from app.main import app
+from app.routers import auth
 
 
 def _register_and_login(client: TestClient, username: str, password: str = "password123"):
@@ -79,6 +83,73 @@ def test_refresh_without_token_rejected(client):
     client.cookies.clear()
     res = client.post("/api/v1/auth/refresh")
     assert res.status_code == 401
+
+
+def test_concurrent_rotation_accepts_old_token_only_once(client, monkeypatch):
+    login = _register_and_login(client, "concurrent_refresh_user")
+    user_id = login.json()["user_id"]
+    old = client.cookies.get("refresh_token")
+    original = auth._lookup_refresh_token
+    first_read, second_started, second_read = Event(), Event(), Event()
+    counter, mutex = [0], Lock()
+
+    def controlled_lookup(connection, token, **kwargs):
+        with mutex:
+            counter[0] += 1
+            ordinal = counter[0]
+        if ordinal == 2:
+            assert first_read.wait(5)
+            second_started.set()
+        row = original(connection, token, **kwargs)
+        if ordinal == 1:
+            first_read.set()
+            assert second_started.wait(5)
+            # Without the locking read, both requests can now read the unrevoked row.
+            second_read.wait(0.2)
+        elif ordinal == 2:
+            second_read.set()
+        return row
+
+    monkeypatch.setattr(auth, "_lookup_refresh_token", controlled_lookup)
+
+    def attempt():
+        with TestClient(app) as independent:
+            return independent.post("/api/v1/auth/refresh", headers={"Cookie": f"refresh_token={old}"})
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(executor.map(lambda _: attempt(), range(2)))
+    assert sorted(response.status_code for response in responses) == [200, 401]
+    accepted = next(response for response in responses if response.status_code == 200)
+    replacement = accepted.cookies.get("refresh_token")
+    assert replacement and replacement != old
+    with database.transaction() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) AS n FROM refresh_tokens WHERE user_id=%s AND revoked_at IS NULL", (user_id,))
+            assert cursor.fetchone()["n"] == 1
+    assert client.post("/api/v1/auth/refresh", headers={"Cookie": f"refresh_token={replacement}"}).status_code == 200
+
+
+def test_failed_replacement_rolls_back_revocation_and_insert(client, monkeypatch):
+    _register_and_login(client, "rollback_refresh_user")
+    old = client.cookies.get("refresh_token")
+    original = auth._issue_refresh_token
+
+    def fail_after_insert(connection, user_id, client_ip, **kwargs):
+        original(connection, user_id, client_ip, **kwargs)
+        raise RuntimeError("synthetic failure before rotation commit")
+
+    monkeypatch.setattr(auth, "_issue_refresh_token", fail_after_insert)
+    response = client.post("/api/v1/auth/refresh")
+    assert response.status_code == 500
+    assert "set-cookie" not in response.headers
+    with database.transaction() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) AS n FROM refresh_tokens")
+            assert cursor.fetchone()["n"] == 1
+            cursor.execute("SELECT revoked_at FROM refresh_tokens")
+            assert cursor.fetchone()["revoked_at"] is None
+    monkeypatch.setattr(auth, "_issue_refresh_token", original)
+    assert client.post("/api/v1/auth/refresh", headers={"Cookie": f"refresh_token={old}"}).status_code == 200
 
 
 def test_refresh_rejects_expired_token(client):
