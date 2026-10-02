@@ -245,7 +245,7 @@ def train_and_evaluate(synthetic_only: bool = False, csv_path: str | None = None
 
     print("⏳ 正在加载数据并提取特征...")
     if csv_path:
-        print(f"ℹ️ 使用真实 Fehring CSV 数据训练: {csv_path}")
+        print(f"ℹ️ 使用 Fehring 格式 CSV 数据训练: {csv_path}")
         raw_cycles, raw_logs = load_fedcycle_csv(csv_path)
     elif synthetic_only:
         print("ℹ️ 使用纯合成数据训练，不读取真实用户数据库")
@@ -349,7 +349,8 @@ def train_and_evaluate(synthetic_only: bool = False, csv_path: str | None = None
     if csv_path:
         data_source = "fedcycle_csv"
         data_notes = (
-            "真实 Fehring 2012 Marquette NFP 数据集；按 ClientID 分组交叉验证，"
+            "Fehring 2012 Marquette NFP 格式的 CSV 周期表；实际来源与授权由操作者核对。"
+            "按 ClientID 分组交叉验证，"
             "去重规则=非空字段最多优先、其次取首行；(ClientID,CycleNumber) 重复行已剔除；"
             "空格字符串转 NaN；Age 等近空列剔除；LengthofCycle 仅作为目标变量，绝不进特征。"
             "该格式无真实开始日期：占位日期仅用于用户内排序，月份特征固定为零，"

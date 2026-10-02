@@ -186,7 +186,7 @@ onMounted(() => void load());
               }}
             </span>
             <span class="rounded-lg bg-gray-50 px-3 py-2">
-              真实 {{ summary.evaluation.dataset?.real_samples ?? 0 }} / 合成
+              输入 {{ summary.evaluation.dataset?.real_samples ?? 0 }} / 合成
               {{ summary.evaluation.dataset?.synthetic_samples ?? 0 }} 样本
             </span>
           </div>

@@ -260,6 +260,8 @@ describe('useCycleCalendar', () => {
   it('新日期加载期间以及 watch 尚未执行时，都不能保存旧日期内容', async () => {
     const { app, calendar } = await makeCalendar();
     calendar.dailyForm.journal_text = 'synthetic previous-day note';
+    calendar.message.value = 'previous-day saved';
+    calendar.aiHealthAdvices.value = ['previous-day advice'];
     let complete!: (value: Awaited<ReturnType<typeof getDailyLogApi>>) => void;
     getDailyLogApiMock.mockImplementationOnce(
       () =>
@@ -273,6 +275,8 @@ describe('useCycleCalendar', () => {
     await nextTick();
     expect(calendar.dailyLogLoading.value).toBe(true);
     expect(calendar.dailyForm.journal_text).toBe('');
+    expect(calendar.message.value).toBe('');
+    expect(calendar.aiHealthAdvices.value).toEqual([]);
     await calendar.saveLog();
     expect(saveDailyLogApiMock).not.toHaveBeenCalled();
     complete({

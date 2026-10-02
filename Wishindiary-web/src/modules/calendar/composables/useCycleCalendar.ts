@@ -335,6 +335,9 @@ export function useCycleCalendar() {
     dailyLogLoading.value = true;
     dailyLogLoadedDate.value = null;
     dailyLogLoadError.value = false;
+    message.value = '';
+    errorMsg.value = '';
+    aiHealthAdvices.value = [];
     Object.assign(dailyForm, createDefaultDailyForm());
     try {
       const res = await getDailyLogApi(dateStr);
