@@ -22,7 +22,10 @@ def audit(
     success: bool = True,
     details: dict[str, Any] | None = None,
 ) -> None:
-    """写一条结构化审计日志。"""
+    """写一条结构化审计日志，仅保留允许的操作标识，不保存健康日期或正文。"""
+    safe_details = {}
+    if details and type(details.get("cycle_id")) is int:
+        safe_details["cycle_id"] = details["cycle_id"]
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "action": action,
@@ -30,6 +33,6 @@ def audit(
         "username": username,
         "ip": ip,
         "success": success,
-        "details": details or {},
+        "details": safe_details,
     }
     audit_logger.info(json.dumps(record, ensure_ascii=False, default=str))

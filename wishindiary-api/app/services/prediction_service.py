@@ -20,7 +20,11 @@ from app.core.errors import AppError
 from app.features import get_latest_features_for_user
 from app.ml.basic_prediction import build_basic_prediction
 from app.ml.contract import MODEL_VERSION
-from app.repositories.cycle_repository import get_user_latest_cycle, get_user_valid_cycles
+from app.repositories.cycle_repository import (
+    get_recent_cycle_lengths,
+    get_user_latest_cycle,
+    get_user_valid_cycles,
+)
 from app.repositories.prediction_log_repository import (
     insert_prediction_snapshot,
 )
@@ -34,12 +38,12 @@ _MAX_PLAUSIBLE_LENGTH = 45
 _INSUFFICIENT_DATA_MESSAGE = "数据不足：请至少记录 4 个完整周期后再试"
 
 def build_data_quality_warnings(features: dict) -> list[str]:
-    """基于最近 3 条完整周期长度，检测疑似漏记/重复标识的数据质量问题。
+    """基于最近 3 条原始周期间隔，检测疑似漏记/重复标识的数据质量问题。
 
     返回可展示给用户的温和提示列表；特征数据无异常时返回空列表。
     - 疑似漏记：某周期长度明显超过常规（>= max(48, 中位数*1.75)），
       对应的实际含义是"再一次经期开始没有被记录"。
-    - 疑似重复/过短：某周期长度明显短于常规（<= min(18, 中位数*0.55)）。
+    - 疑似重复/过短：某周期长度明显短于常规（<= min(17, 中位数*0.6)）。
     """
     lengths = [
         features.get("lag_1_length"),
@@ -75,6 +79,21 @@ def build_data_quality_warnings(features: dict) -> list[str]:
             )
             break
     return warnings
+
+
+def get_data_quality_warnings(user_id: int) -> list[str]:
+    """Keep quality checks independent of the model's filtered lag features."""
+    try:
+        with transaction() as connection:
+            with connection.cursor() as cursor:
+                rows = get_recent_cycle_lengths(cursor, user_id)
+        return build_data_quality_warnings({
+            f"lag_{index}_length": row["cycle_length"]
+            for index, row in enumerate(rows, 1)
+        })
+    except Exception:
+        logger.exception("Data quality query failed for user_id=%s", user_id)
+        raise AppError(500, "internal_error", "数据质量检查失败，请稍后重试")
 
 
 def build_basic_stats_prediction(user_id: int) -> dict | None:
@@ -175,10 +194,6 @@ class PredictionService:
             except Exception:
                 logger.exception("模型监控记录失败，忽略", exc_info=True)
 
-            # 数据质量提示（疑似漏记/过短间隔），默认无提示
-            prediction_result["data_quality_warnings"] = (
-                build_data_quality_warnings(features_dict) or None
-            )
         else:
             # 基础统计降级模式：样本过少，跳过模型监控，仅记录推理指标。
             if record:
@@ -191,6 +206,9 @@ class PredictionService:
                     )
                 except Exception:
                     logger.exception("基础统计预测指标记录失败，忽略")
+
+        # Inspect raw recent intervals for both ML and cold-start predictions.
+        prediction_result["data_quality_warnings"] = get_data_quality_warnings(user_id) or None
 
         # 批处理预览不写预测日志或监控文件；交互式预测保持原行为。
         if not record:

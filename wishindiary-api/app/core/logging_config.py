@@ -47,11 +47,18 @@ CONTEXT_FIELDS = {
     "user_id",
 }
 
-# JsonFormatter 默认排除的标准 logging 字段；此处仅“放行”白名单额外字段与
-# level/logger/ts，其余所有 record 属性都会被丢弃。
+# JsonFormatter 的标准 logging 属性排除表；业务字段由下方格式化器另行过滤。
 _RESERVED = [
     attr for attr in _pjl_core.RESERVED_ATTRS if attr not in ("levelname", "name", "timestamp")
 ]
+
+
+class _AllowlistJsonFormatter(JsonFormatter):
+    """Filter both extra fields and dictionary messages before serialization."""
+
+    def process_log_record(self, log_data: dict) -> dict:
+        allowed = CONTEXT_FIELDS | {"ts", "level", "logger", "message", "exc_info", "stack_info"}
+        return {key: value for key, value in log_data.items() if key in allowed}
 
 
 class _ContextFilter(logging.Filter):
@@ -70,7 +77,7 @@ class _ContextFilter(logging.Filter):
 
 
 def _build_json_formatter() -> logging.Formatter:
-    return JsonFormatter(
+    return _AllowlistJsonFormatter(
         rename_fields={
             "levelname": "level",
             "name": "logger",

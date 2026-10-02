@@ -49,3 +49,20 @@ def test_invalid_or_missing_report_has_explicit_state(monkeypatch, tmp_path):
     assert read_evaluation_report()["available"] is False
     (tmp_path / "model_evaluation_report.json").write_text("not JSON")
     assert read_evaluation_report()["available"] is False
+
+
+def test_cycle_order_report_exposes_safe_calendar_status(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_PATH", tmp_path / "model.skops")
+    report = {
+        "dataset": {"source": "fedcycle_csv", "calendar_features_enabled": False,
+                    "calendar_provenance": ["synthetic_cycle_order", "synthetic-private-path"]},
+        "temporal_holdout": {"status": "not_applicable", "reason": "synthetic-private-details"},
+    }
+    (tmp_path / "model_evaluation_report.json").write_text(json.dumps(report))
+    result = read_evaluation_report()
+    assert result["available"] is True
+    assert result["temporal_holdout_status"] == "not_applicable"
+    assert result["dataset"]["calendar_provenance"] == ["synthetic_cycle_order"]
+    assert result["dataset"]["calendar_features_enabled"] is False
+    assert result["metrics"]["temporal_holdout"] == {}
+    assert "synthetic-private" not in json.dumps(result)

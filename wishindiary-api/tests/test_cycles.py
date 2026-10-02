@@ -123,3 +123,52 @@ def test_cycle_update_null_end_date_reopens_cycle(client, auth_header):
     cycle = client.get("/api/v1/stats", headers=auth_header).json()["cycles"][0]
     assert cycle["end_date"] is None
     assert cycle["cycle_length"] is None
+
+
+def test_next_start_updates_length_after_recorded_end(client, auth_header):
+    for path, payload in [
+        ("log_start", {"start_date": "2024-01-01"}),
+        ("log_end", {"end_date": "2024-01-05"}),
+        ("log_start", {"start_date": "2024-01-29"}),
+    ]:
+        assert client.post(f"/api/v1/{path}", json=payload).status_code == 200
+    cycles = client.get("/api/v1/stats").json()["cycles"]
+    assert cycles[0]["cycle_length"] == 28
+    assert cycles[0]["end_date"] == "2024-01-05"
+    assert client.get("/api/v1/prediction").json()["status"] == "success"
+
+
+def test_missing_previous_end_does_not_fabricate_dates_or_block_latest_end(client, auth_header):
+    for start in ["2024-01-01", "2024-01-29"]:
+        assert client.post("/api/v1/log_start", json={"start_date": start}).status_code == 200
+    first, latest = client.get("/api/v1/stats").json()["cycles"]
+    assert first["cycle_length"] == 28
+    assert first["end_date"] is None
+    assert first["bleeding_days"] is None
+    assert client.post("/api/v1/log_end", json={"end_date": "2024-02-02"}).status_code == 200
+    # 默认修正最新记录，不能回退到历史漏记。
+    assert client.post("/api/v1/log_end", json={"end_date": "2024-02-03"}).status_code == 200
+    first, latest = client.get("/api/v1/stats").json()["cycles"]
+    assert first["end_date"] is None
+    assert latest["end_date"] == "2024-02-03"
+
+
+def test_historical_unknown_end_can_be_updated_and_filled(client, auth_header):
+    for start in ["2024-01-01", "2024-01-29", "2024-02-26"]:
+        assert client.post("/api/v1/log_start", json={"start_date": start}).status_code == 200
+    first, middle, _ = client.get("/api/v1/stats").json()["cycles"]
+    response = client.put(
+        f"/api/v1/cycles/{middle['cycle_id']}",
+        json={"start_date": "2024-01-30", "end_date": None},
+    )
+    assert response.status_code == 200, response.text
+    assert client.post("/api/v1/log_end", json={
+        "cycle_id": first["cycle_id"], "end_date": "2024-01-05",
+    }).status_code == 200
+    rows = client.get("/api/v1/stats").json()["cycles"]
+    assert rows[0]["cycle_length"] == 29
+    assert rows[1]["cycle_length"] == 27
+    assert rows[1]["end_date"] is None
+    assert client.post("/api/v1/log_end", json={
+        "cycle_id": rows[1]["cycle_id"], "end_date": "2024-02-26",
+    }).status_code == 400

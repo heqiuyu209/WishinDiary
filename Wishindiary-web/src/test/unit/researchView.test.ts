@@ -63,6 +63,25 @@ const forecastFixture = () => {
   };
 };
 
+it('CSV 没有真实日期时，时间留出明确显示不适用', async () => {
+  const base = fixture();
+  getSummary.mockResolvedValue({
+    data: {
+      ...base,
+      evaluation: { ...base.evaluation, temporal_holdout_status: 'not_applicable' },
+    },
+  });
+  const wrapper = mount(ResearchView);
+  await flushPromises();
+  expect(wrapper.text()).toContain('月份特征已停用');
+  expect(wrapper.text()).toContain('真实日历时间留出不适用');
+  const temporalRow = wrapper
+    .findAll('tr')
+    .find((row) => row.text().includes('时间留出 · 随机森林'));
+  expect(temporalRow?.text()).toContain('不适用');
+  wrapper.unmount();
+});
+
 const calibratedForecastFixture = () => {
   const forecast = forecastFixture();
   const basic: ForecastCalibrationMethod = {
