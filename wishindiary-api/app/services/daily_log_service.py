@@ -4,6 +4,7 @@ import logging
 from datetime import date
 
 from app.core.audit import audit
+from app.core.calendar_time import user_today
 from app.core.database import transaction
 from app.core.errors import AppError
 from app.repositories.daily_log_repository import (
@@ -24,12 +25,11 @@ class DailyLogService:
     """每日日志业务：保存日志并生成个性化 AI 健康与膳食营养建议。"""
 
     def save(self, user_id: int, req: DailyLogRequest) -> dict:
-        if req.log_date > date.today():
-            raise AppError(400, "invalid_input", "日志日期不能晚于今天")
-
         try:
             with transaction() as connection:
                 with connection.cursor() as cursor:
+                    if req.log_date > user_today(cursor, user_id):
+                        raise AppError(400, "invalid_input", "日志日期不能晚于今天")
                     upsert_daily_log(
                         cursor,
                         user_id,

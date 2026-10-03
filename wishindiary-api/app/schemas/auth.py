@@ -6,6 +6,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from pydantic_core import PydanticCustomError
 
 from app.schemas.common import StatusResponse
+from app.core.calendar_time import calendar_today
 
 # 相邻经期开始日期的医学合理间隔（宽松口径，与补录验证一致）
 _PERIOD_MIN_GAP_DAYS = 15
@@ -40,7 +41,7 @@ class RegisterRequest(UserAuthRequest):
         if not value:
             return value
 
-        today = date.today()
+        today = calendar_today()
         for d in value:
             if d > today:
                 raise PydanticCustomError(

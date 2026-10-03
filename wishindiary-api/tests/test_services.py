@@ -90,6 +90,8 @@ def _patch_transaction(monkeypatch, fake_cursor):
     ):
         if hasattr(mod, "transaction"):
             monkeypatch.setattr(mod, "transaction", lambda: _Ctx())
+        if hasattr(mod, "user_today"):
+            monkeypatch.setattr(mod, "user_today", lambda cursor, user_id: date.today())
 
 
 @pytest.fixture
