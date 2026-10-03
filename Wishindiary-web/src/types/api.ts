@@ -108,6 +108,8 @@ export interface ResearchSummary extends StatusResponse {
     metrics?: Record<string, Record<string, number>>;
   };
   forecast_evaluation?: ForecastEvaluation;
+  lifestyle_evaluation?: LifestyleEvaluation;
+  lifestyle_coverage?: LifestyleCoverage;
   recommendations: string[];
 }
 
@@ -372,4 +374,47 @@ export interface ReportData {
 
 export interface ReportResponse extends StatusResponse {
   report: ReportData;
+}
+
+export interface LifestyleScore {
+  samples: number;
+  mae?: number;
+  hit_rate_within_2d?: number;
+  delta_mae_vs_base?: number;
+  interval_samples?: number;
+  interval_unavailable_samples?: number;
+  coverage_pct?: number;
+  mean_width_days?: number;
+}
+export interface LifestyleProtocol {
+  samples: number;
+  candidate_samples: number;
+  skipped_empty_folds: number;
+  excluded_unseen_cases: number;
+  metrics: Record<string, LifestyleScore>;
+  coverage_groups: Record<string, Record<string, LifestyleScore>>;
+}
+export interface LifestyleEvaluation {
+  available: boolean;
+  message?: string;
+  feature_version?: string;
+  pipeline_matches_report?: boolean;
+  generated_at?: string;
+  dataset?: { source: string; n_users: number };
+  data_as_of?: string;
+  calibration_cutoff?: string;
+  test_cutoff?: string;
+  target_coverage_pct?: number;
+  eligible_cases?: number;
+  exclusions?: Record<string, number>;
+  stages?: Record<string, { target: string; protocols: Record<string, LifestyleProtocol> }>;
+}
+export interface LifestyleCoverage {
+  total: number;
+  legacy: number;
+  recorded: number;
+  sleep: number;
+  stress: number;
+  exercise: number;
+  intensity: number;
 }

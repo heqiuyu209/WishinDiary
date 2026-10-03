@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { getResearchSummaryApi } from '../api';
 import { extractApiErrorMessage } from '../../../shared/api/httpClient';
 import IntervalBreakdownTable from '../components/IntervalBreakdownTable.vue';
+import LifestyleResearchPanel from '../components/LifestyleResearchPanel.vue';
 import type {
   ForecastGroup,
   ForecastIntervalMethod,
@@ -540,5 +541,10 @@ onMounted(() => void load());
         </ul>
       </div>
     </template>
+    <LifestyleResearchPanel
+      v-if="summary"
+      :evaluation="summary?.lifestyle_evaluation"
+      :coverage="summary?.lifestyle_coverage"
+    />
   </section>
 </template>
