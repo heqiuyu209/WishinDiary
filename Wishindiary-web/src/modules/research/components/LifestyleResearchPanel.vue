@@ -160,9 +160,7 @@ const coverageRows = computed(
       <p class="text-xs text-gray-500">
         事后补录或未知签发
         {{ evaluation.exclusions?.late_or_unknown_issuance ?? 0 }} 个间隔；缺少及时未开始确认
-        {{
-          evaluation.exclusions?.dynamic_without_timely_confirmation ?? 0
-        }}
+        {{ evaluation.exclusions?.dynamic_without_timely_confirmation ?? 0 }}
         个动态候选；其余排除原因保留在离线汇总报告中。
       </p>
     </template>
