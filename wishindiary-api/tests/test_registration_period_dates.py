@@ -91,8 +91,6 @@ class TestRegisterBackfillValidation:
             ((1,), "未来日期"),
             ((-28, -28), "重复日期"),
             ((-28,), "仅 1 个日期不足一个完整周期"),
-            ((-48, -38), "相邻间隔 10 天过短"),
-            ((-90, -20), "相邻间隔 70 天过长"),
         ],
     )
     def test_rejects_invalid_backfill(self, client, offsets, label):
@@ -146,3 +144,12 @@ class TestPredictionBackfillUnlock:
         body = client.get("/api/v1/prediction").json()
         assert body["status"] == "insufficient_data"
         assert body["prediction"] is None
+
+
+def test_registration_preserves_short_and_long_observations_without_prediction(client):
+    assert _register(client, "bf_user", ["2024-01-01", "2024-01-11", "2024-07-09"]).status_code == 200
+    _login(client)
+    rows = client.get("/api/v1/stats").json()["cycles"]
+    assert [row["cycle_length"] for row in rows] == [10, 180, None]
+    result = client.get("/api/v1/prediction").json()
+    assert result["status"] == "outside_model_scope" and result["prediction"] is None

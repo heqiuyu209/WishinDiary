@@ -34,7 +34,7 @@ export interface RegisterRequest {
   username: string;
   password: string;
   email?: string;
-  /** 可选：注册时补录最近 2~4 个经期开始日期（升序、不重复、间隔 15~60 天、不晚于今天） */
+  /** 可选：注册时补录最近 2~4 个经期开始日期（升序、不重复、保留真实间隔、不晚于今天） */
   period_start_dates?: string[];
 }
 
