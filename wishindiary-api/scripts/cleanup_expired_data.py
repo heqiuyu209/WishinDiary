@@ -28,6 +28,11 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 from app.core.config import settings  # noqa: E402
+from app.repositories.cycle_repository import recalculate_cycle_lengths  # noqa: E402
+from app.repositories.cycle_research_repository import (  # noqa: E402
+    mark_cycle_history_reset,
+    record_cycle_revisions,
+)
 
 # 涉及的用户数据表（不含 users 本身：不自动删账号）
 DATA_TABLES = ("cycles", "daily_logs", "prediction_logs")
@@ -80,6 +85,12 @@ def main() -> int:
 
     conn = _connect()
     try:
+        if args.apply:
+            # Maintenance follows the API's user-first write lock order. Lock
+            # before any snapshot read so recalculation sees concurrent edits.
+            with conn.cursor() as cur:
+                cur.execute("SELECT user_id FROM users ORDER BY user_id FOR UPDATE")
+                cur.fetchall()
         total = 0
         for table in DATA_TABLES:
             col = _table_cutoff_column(table)
@@ -90,7 +101,16 @@ def main() -> int:
             if count:
                 if args.apply:
                     with conn.cursor() as cur:
+                        affected_users = []
+                        if table == "cycles":
+                            cur.execute("SELECT DISTINCT user_id FROM cycles WHERE created_at < %s ORDER BY user_id", (cutoff_sql,))
+                            affected_users = [row["user_id"] for row in cur.fetchall()]
+                            for user_id in affected_users:
+                                mark_cycle_history_reset(cur, user_id)
                         cur.execute(f"DELETE FROM {table} WHERE {where}", (cutoff_sql,))
+                        for user_id in affected_users:
+                            recalculate_cycle_lengths(cur, user_id)
+                            record_cycle_revisions(cur, user_id, source="retention_snapshot")
                     print(f"[删除] {table}: {count} 行（创建早于 {cutoff_sql}）")
                 else:
                     print(f"[预览] {table}: 将删除 {count} 行（创建早于 {cutoff_sql}）—— 使用 --apply 真正执行")

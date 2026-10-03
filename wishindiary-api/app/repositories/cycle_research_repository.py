@@ -4,7 +4,9 @@ from datetime import timezone
 from app.core.calendar_time import utc_now
 
 
-def record_cycle_revisions(cursor, user_id: int) -> None:
+def record_cycle_revisions(cursor, user_id: int, *, source: str = "user_recorded") -> None:
+    if source not in {"user_recorded", "repair_snapshot", "retention_snapshot"}:
+        raise ValueError("Unsupported cycle revision source")
     cursor.execute("SELECT cycle_id,start_date,end_date FROM cycles WHERE user_id=%s ORDER BY start_date", (user_id,))
     rows = cursor.fetchall()
     if not rows:
@@ -17,8 +19,8 @@ def record_cycle_revisions(cursor, user_id: int) -> None:
         previous = cursor.fetchone()
         if previous and (previous["start_date"], previous["end_date"]) == (row["start_date"], row["end_date"]):
             continue
-        cursor.execute("INSERT INTO cycle_revisions (cycle_id,user_id,start_date,end_date,known_at,source,timezone_name) VALUES (%s,%s,%s,%s,%s,'user_recorded',%s)",
-                       (row["cycle_id"], user_id, row["start_date"], row["end_date"], now, tz))
+        cursor.execute("INSERT INTO cycle_revisions (cycle_id,user_id,start_date,end_date,known_at,source,timezone_name) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                       (row["cycle_id"], user_id, row["start_date"], row["end_date"], now, source, tz))
 
 
 def mark_cycle_history_reset(cursor, user_id: int) -> None:

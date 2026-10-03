@@ -46,8 +46,10 @@ def downgrade() -> None:
     bind = op.get_bind()
     if bind.execute(sa.text("SELECT COUNT(*) FROM cycle_tracking_events")).scalar_one():
         raise RuntimeError("Cannot downgrade with tracking confirmations; preserve authorized records first")
-    if bind.execute(sa.text("SELECT COUNT(*) FROM cycle_revisions WHERE source='user_recorded'")).scalar_one():
+    if bind.execute(sa.text("SELECT COUNT(*) FROM cycle_revisions WHERE source<>'legacy_snapshot'")).scalar_one():
         raise RuntimeError("Cannot downgrade with cycle event history; preserve records first")
+    if bind.execute(sa.text("SELECT COUNT(*) FROM users WHERE cycle_history_reset_at IS NOT NULL")).scalar_one():
+        raise RuntimeError("Cannot downgrade with cycle history reset markers; preserve records first")
     op.drop_table("cycle_tracking_events")
     op.drop_table("cycle_revisions")
     op.drop_column("users", "cycle_history_reset_at")

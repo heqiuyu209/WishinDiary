@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.database import transaction
+from app.repositories.cycle_research_repository import record_cycle_revisions
 
 
 def plan_repairs(rows: list[dict]) -> list[dict]:
@@ -76,6 +77,8 @@ def repair_history(*, apply: bool = False, backup: Path | None = None) -> dict:
                         (after["cycle_length"], after["end_date"], after["bleeding_days"],
                          before["cycle_id"], before["user_id"]),
                     )
+                for user_id in sorted({item["before"]["user_id"] for item in repairs}):
+                    record_cycle_revisions(cursor, user_id, source="repair_snapshot")
     return {"mode": "apply" if apply else "dry_run", "records_scanned": len(rows),
             "records_to_repair": len(repairs), "gaps_requiring_manual_review": invalid_gaps}
 
