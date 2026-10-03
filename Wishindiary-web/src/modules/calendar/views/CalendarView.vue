@@ -10,6 +10,8 @@ import DailyHealthForm from '../components/DailyHealthForm.vue';
 const {
   selectedDate,
   prediction,
+  predictionMessage,
+  predictionWarnings,
   message,
   errorMsg,
   dailyForm,
@@ -37,6 +39,14 @@ const {
 <template>
   <div class="space-y-6">
     <PredictionBanner :prediction="prediction" />
+    <div
+      v-if="predictionMessage"
+      role="status"
+      class="rounded-2xl bg-amber-50 p-4 text-sm text-amber-800"
+    >
+      <p>{{ predictionMessage }}</p>
+      <p v-for="warning in predictionWarnings" :key="warning" class="mt-2 text-xs">{{ warning }}</p>
+    </div>
 
     <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
       <div

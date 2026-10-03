@@ -290,6 +290,10 @@ onMounted(() => void load());
             </button>
           </div>
           <p class="mt-3 text-sm">共同评估样本：{{ forecastResult?.samples ?? 0 }} 条</p>
+          <p v-if="forecastResult?.candidate_samples != null" class="mt-1 text-xs text-gray-500">
+            候选 {{ forecastResult.candidate_samples }} 条，因适用范围暂停预测
+            {{ forecastResult.abstained_samples ?? 0 }} 条；误差指标只针对实际提供预测的共同样本。
+          </p>
           <p v-if="!forecastResult?.samples" class="mt-3 text-sm text-gray-500">
             该协议暂无可用评估样本，不能据此判断模型优劣。
           </p>

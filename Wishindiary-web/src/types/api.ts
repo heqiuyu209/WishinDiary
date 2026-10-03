@@ -182,6 +182,8 @@ export interface ForecastEvaluation {
         n_splits?: number;
         training_samples?: number;
         excluded_unseen_cases?: number;
+        candidate_samples?: number;
+        abstained_samples?: number;
         skipped_empty_folds?: number;
         intervals?: Partial<
           Record<
@@ -238,6 +240,7 @@ export interface PredictionResponseData {
 
 export interface PredictionResponse extends StatusResponse {
   prediction: PredictionResponseData | null;
+  data_quality_warnings?: string[] | null;
 }
 
 // ---------------------------------------------------------------------------

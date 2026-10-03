@@ -125,7 +125,7 @@ class TestPredictionBackfillUnlock:
         assert pred["last_period_start"] == d_latest
         assert 21 <= pred["predicted_cycle_length"] <= 45
         assert "基础统计量模式" in pred["features_info"]
-        assert pred["confidence_interval"]["low"] <= pred["confidence_interval"]["high"]
+        assert pred["confidence_interval"] is None  # A single interval cannot establish uncertainty.
         assert "不能用于诊断" in pred["disclaimer"]
 
     def test_backfilled_four_dates_still_uses_basic_stats(self, client):

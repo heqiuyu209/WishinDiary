@@ -20,6 +20,7 @@ from app.core.errors import AppError
 from app.features import get_latest_features_for_user
 from app.ml.basic_prediction import build_basic_prediction
 from app.ml.contract import MODEL_VERSION
+from app.ml.prediction_scope import SCOPE_MESSAGE, PredictionScopeError, history_is_supported
 from app.repositories.cycle_repository import (
     get_recent_cycle_lengths,
     get_user_latest_cycle,
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 # 医学合理范围（与特征工程保持一致的宽松口径）
 _MIN_PLAUSIBLE_LENGTH = 15
 _MAX_PLAUSIBLE_LENGTH = 45
-_INSUFFICIENT_DATA_MESSAGE = "数据不足：请至少记录 4 个完整周期后再试"
+_INSUFFICIENT_DATA_MESSAGE = "数据不足：请至少记录两次经期开始日；完整历史积累后才会启用机器学习。"
 
 def build_data_quality_warnings(features: dict) -> list[str]:
     """基于最近 3 条原始周期间隔，检测疑似漏记/重复标识的数据质量问题。
@@ -51,7 +52,7 @@ def build_data_quality_warnings(features: dict) -> list[str]:
         features.get("lag_3_length"),
     ]
     lengths = [float(x) for x in lengths if x is not None]
-    if len(lengths) < 2:
+    if not lengths:
         return []
 
     # 基线只取医学合理范围（15-45）内的记录，避免超长间隔污染常规水平；
@@ -62,16 +63,16 @@ def build_data_quality_warnings(features: dict) -> list[str]:
     warnings: list[str] = []
     # 超长间隔本身即是"漏记一次开始"的信号，因此不按 45 天上限过滤后再检测
     for length in lengths:
-        if length >= max(48.0, baseline * 1.75):
+        if length > _MAX_PLAUSIBLE_LENGTH:
             ratio = length / baseline
             warnings.append(
                 f"检测到一段异常长的周期间隔（{int(round(length))} 天，"
                 f"约为你常规周期约 {int(round(baseline))} 天的 {ratio:.1f} 倍），"
-                "可能漏记了一次经期开始日期，建议核对日历记录。"
+                "可能是真实长间隔或漏记，请核对日历记录，不能仅凭间隔认定漏记。"
             )
             break
     for length in lengths:
-        if length <= min(17.0, baseline * 0.6):
+        if length < _MIN_PLAUSIBLE_LENGTH or (len(lengths) >= 2 and length <= min(17.0, baseline * 0.6)):
             warnings.append(
                 f"检测到一段明显过短的周期间隔（{int(round(length))} 天，"
                 f"常规周期约 {int(round(baseline))} 天），"
@@ -131,6 +132,15 @@ class PredictionService:
           新用户无需等到积累满 4 个完整周期即可获得可用预测区间；
         - 无任何完整周期：维持 insufficient_data。
         """
+        with transaction() as connection:
+            with connection.cursor() as cursor:
+                recent = list(reversed(get_recent_cycle_lengths(cursor, user_id)))
+        warnings = build_data_quality_warnings({f"lag_{i}_length": row["cycle_length"] for i, row in enumerate(recent, 1)})
+        def unavailable(status, message):
+            return {"status": status, "message": message, "prediction": None,
+                    "data_quality_warnings": warnings or None}
+        if not history_is_supported(recent):
+            return unavailable("outside_model_scope", SCOPE_MESSAGE)
         features_dict = None
         prediction_result = None
         try:
@@ -142,11 +152,8 @@ class PredictionService:
             prediction_result = build_basic_stats_prediction(user_id)
             if prediction_result is None:
                 # 不把异常文本写入响应；底层细节可能包含实现或数据库信息。
-                return {
-                    "status": "insufficient_data",
-                    "message": _INSUFFICIENT_DATA_MESSAGE,
-                    "prediction": None,
-                }
+                return unavailable("outside_model_scope" if recent else "insufficient_data",
+                                   SCOPE_MESSAGE if recent else _INSUFFICIENT_DATA_MESSAGE)
         except Exception:
             logger.exception("Feature extraction failed for user_id=%s", user_id)
             raise AppError(500, "internal_error", "特征提取失败，请稍后重试")
@@ -156,12 +163,13 @@ class PredictionService:
 
         if prediction_result is None:
             _infer_start = time.perf_counter()
-            prediction_result = self._predictor.predict(
-                features_dict,
-                last_start_date,
-                n_complete_cycles=n_complete_cycles,
-                user_mean=user_mean,
-            )
+            try:
+                prediction_result = self._predictor.predict(
+                    features_dict, last_start_date,
+                    n_complete_cycles=n_complete_cycles, user_mean=user_mean,
+                )
+            except PredictionScopeError:
+                return unavailable("outside_model_scope", SCOPE_MESSAGE)
             _infer_latency_ms = (time.perf_counter() - _infer_start) * 1000.0
             if prediction_result is None:
                 if record:
@@ -208,7 +216,7 @@ class PredictionService:
                     logger.exception("基础统计预测指标记录失败，忽略")
 
         # Inspect raw recent intervals for both ML and cold-start predictions.
-        prediction_result["data_quality_warnings"] = get_data_quality_warnings(user_id) or None
+        prediction_result["data_quality_warnings"] = warnings or None
 
         # 批处理预览不写预测日志或监控文件；交互式预测保持原行为。
         if not record:

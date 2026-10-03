@@ -68,6 +68,8 @@ interface CalendarAttr {
 export function useCycleCalendar() {
   const selectedDate: Ref<Date> = ref(new Date());
   const prediction = ref<PredictionResponseData | null>(null);
+  const predictionMessage = ref('');
+  const predictionWarnings = ref<string[]>([]);
   const message = ref('');
   const errorMsg = ref('');
   const aiHealthAdvices = ref<string[]>([]);
@@ -406,9 +408,14 @@ export function useCycleCalendar() {
     if (predictionResult.status === 'fulfilled') {
       const payload = predictionResult.value.data;
       prediction.value = payload.status === 'success' ? payload.prediction : null;
+      predictionMessage.value =
+        payload.status === 'success' ? '' : payload.message || '暂时无法预测';
+      predictionWarnings.value = payload.data_quality_warnings || [];
     } else {
       // 预测数据不足时仍然保留并显示历史周期，不能阻断日历加载。
       prediction.value = null;
+      predictionMessage.value = '预测加载失败，请稍后重试。';
+      predictionWarnings.value = [];
       console.warn('Prediction unavailable:', predictionResult.reason);
     }
 
@@ -448,6 +455,8 @@ export function useCycleCalendar() {
   return {
     selectedDate,
     prediction,
+    predictionMessage,
+    predictionWarnings,
     message,
     errorMsg,
     aiHealthAdvices,

@@ -115,6 +115,24 @@ describe('useCycleCalendar', () => {
     app.unmount();
   });
 
+  it('超出模型范围时保留解释与提示，并清除预测日', async () => {
+    const { app, calendar } = await makeCalendar(predictionFixture());
+    getPredictionApiMock.mockResolvedValue(
+      ok({
+        status: 'outside_model_scope',
+        prediction: null,
+        message: '暂不提供日期',
+        data_quality_warnings: ['核对 60 天记录'],
+      }) as never,
+    );
+    await calendar.fetchData();
+    expect(calendar.prediction.value).toBeNull();
+    expect(calendar.predictionMessage.value).toBe('暂不提供日期');
+    expect(calendar.predictionWarnings.value).toEqual(['核对 60 天记录']);
+    expect(calendar.calendarAttributes.value.some((row) => row.key === 'pred-start')).toBe(false);
+    app.unmount();
+  });
+
   it('最新经期已结束时，不把历史漏记结束日当成开放周期', async () => {
     const { app, calendar } = await makeCalendar();
     getStatsApiMock.mockResolvedValue(
