@@ -14,6 +14,7 @@ const {
   predictionWarnings,
   message,
   errorMsg,
+  aiHealthAdvices,
   dailyForm,
   dailyLogLoading,
   dailyLogLoadError,
@@ -119,6 +120,13 @@ const {
     >
       {{ message }}
     </div>
+    <ul
+      v-if="aiHealthAdvices.length"
+      aria-label="记录提示"
+      class="rounded-xl bg-blue-50 p-4 text-xs text-blue-800 space-y-2"
+    >
+      <li v-for="advice in aiHealthAdvices" :key="advice">{{ advice }}</li>
+    </ul>
     <div
       v-if="errorMsg"
       class="p-3 bg-red-50 text-red-600 rounded-xl text-xs font-medium text-center"

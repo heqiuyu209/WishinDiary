@@ -69,9 +69,10 @@ class DailyLogUpdateRequest(_DailyLogFields):
 
 
 class DailyLogResponse(StatusResponse):
-    """保存每日日志后的响应，包含 AI 生成的健康建议。"""
+    """保存每日日志后的响应，包含基于规则的记录提示。"""
 
     ai_health_advice: list[str]
+    advice_source: str = "rule_based"
 
 
 class DailyLogReadResponse(StatusResponse):

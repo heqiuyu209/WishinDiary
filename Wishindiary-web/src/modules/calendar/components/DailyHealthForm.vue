@@ -25,7 +25,7 @@ const symptomOptions: Array<{ key: keyof DailyFormData['symptom_levels']; label:
       <span
         class="text-[10px] bg-purple-50 text-purple-600 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider"
       >
-        AI 分析
+        记录提示
       </span>
     </div>
 
@@ -180,7 +180,7 @@ const symptomOptions: Array<{ key: keyof DailyFormData['symptom_levels']; label:
       @click="emit('save')"
       class="w-full mt-6 bg-purple-500 hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-2xl text-xs shadow-md transition-all active:scale-[0.98]"
     >
-      保存档案并生成分析
+      保存档案
     </button>
   </fieldset>
 </template>
