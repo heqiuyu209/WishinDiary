@@ -121,7 +121,7 @@ const handleRegister = async () => {
     const recorded = res.data?.period_dates_recorded ?? 0;
     message.value =
       recorded > 0
-        ? `注册成功！已为您补录 ${recorded} 次经期记录，可直接登录享受个性化预测。`
+        ? `注册成功！已为您补录 ${recorded} 次经期记录，可直接登录查看记录与预测适用性。`
         : '注册成功，请直接登录！';
     if (res.data.email_verification_required) {
       message.value += res.data.email_verification_sent
@@ -250,8 +250,8 @@ const handleRegister = async () => {
 
         <div v-if="showBackfill" id="backfill-panel" class="space-y-3">
           <p class="text-xs text-gray-500 leading-relaxed">
-            可选：补录最近 2~4 次经期开始日期后，注册即可立即获得基础统计量与预测区间，无需等待积累
-            4 个完整周期。日期不晚于今天、相邻间隔 15~60 天。
+            可选：补录最近 2~4 次真实经期开始日期，日期不重复、不晚于今天。
+            原始间隔会保留；符合模型适用范围时可获得基础统计预测。
           </p>
           <div v-for="(_slot, index) in periodDates" :key="index" class="flex items-center gap-2">
             <label :for="`backfill-date-${index}`" class="sr-only">

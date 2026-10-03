@@ -1,6 +1,7 @@
 """Cycle schemas（周期模块请求/响应模型）。"""
 
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -31,3 +32,6 @@ class CycleUpdateRequest(BaseModel):
 
 class CycleOperationResponse(StatusResponse):
     """周期写入操作（开始/结束/更新/删除）的统一响应。"""
+class TrackingRequest(BaseModel):
+    kind: Literal["unknown", "missed_tracking", "true_long_interval", "no_onset"]
+    as_of_date: date

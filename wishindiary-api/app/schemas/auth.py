@@ -6,11 +6,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from pydantic_core import PydanticCustomError
 
 from app.schemas.common import StatusResponse
-
-# 相邻经期开始日期的医学合理间隔（宽松口径，与补录验证一致）
-_PERIOD_MIN_GAP_DAYS = 15
-_PERIOD_MAX_GAP_DAYS = 60
-
+from app.core.calendar_time import calendar_today
 
 class UserAuthRequest(BaseModel):
     username: str = Field(min_length=1, max_length=50)
@@ -24,8 +20,7 @@ class RegisterRequest(UserAuthRequest):
         default_factory=list,
         max_length=4,
         description=(
-            "可选：新用户注册时补录最近 3~4 次经期开始日期（升序、不重复、"
-            f"相邻间隔 {_PERIOD_MIN_GAP_DAYS}~{_PERIOD_MAX_GAP_DAYS} 天、不得晚于今天）。"
+            "可选：补录最近 2~4 次真实经期开始日期（不重复、不得晚于账户今天）。"
             "提供 2 个及以上即可构成至少 1 个完整周期，使新用户立即获得基础统计量与预测区间。"
         ),
     )
@@ -33,14 +28,14 @@ class RegisterRequest(UserAuthRequest):
     @field_validator("period_start_dates")
     @classmethod
     def _validate_period_start_dates(cls, value: list[date]) -> list[date]:
-        """补录经期日期的健壮校验：禁未来 / 去重 / 至少 2 个 / 相邻间隔 15~60 天。
+        """补录经期日期的健壮校验：禁未来 / 去重 / 至少 2 个；原始间隔不受模型资格限制。
 
         返回升序去重后的日期列表（供注册流程按时间顺序写入 cycles）。
         """
         if not value:
             return value
 
-        today = date.today()
+        today = calendar_today()
         for d in value:
             if d > today:
                 raise PydanticCustomError(
@@ -56,14 +51,6 @@ class RegisterRequest(UserAuthRequest):
                 "补录经期开始日期至少需要 2 个（才能构成至少 1 个完整周期）",
             )
 
-        for prev, cur in zip(deduped, deduped[1:]):
-            gap = (cur - prev).days
-            if not (_PERIOD_MIN_GAP_DAYS <= gap <= _PERIOD_MAX_GAP_DAYS):
-                raise PydanticCustomError(
-                    "period_gap_out_of_range",
-                    f"相邻经期开始日期间隔需在 "
-                    f"{_PERIOD_MIN_GAP_DAYS}~{_PERIOD_MAX_GAP_DAYS} 天之间",
-                )
         return deduped
 
 

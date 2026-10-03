@@ -15,15 +15,17 @@ class CycleRead(BaseModel):
     end_date: date | None = None
     cycle_length: int | None = None
     bleeding_days: int | None = None
+    tracking_kind: str | None = None
+    tracking_as_of_date: date | None = None
 
 
 class DailyLogSummary(BaseModel):
     """每日日志摘要（列表视图）。"""
 
     log_date: date
-    mood_level: int
-    cramps_severity: int
-    is_exercise: bool
+    mood_level: int | None
+    cramps_severity: int | None
+    is_exercise: bool | None
     exercise_type: str | None = None
     journal_text: str | None = None
 

@@ -34,7 +34,7 @@ export interface RegisterRequest {
   username: string;
   password: string;
   email?: string;
-  /** 可选：注册时补录最近 2~4 个经期开始日期（升序、不重复、间隔 15~60 天、不晚于今天） */
+  /** 可选：注册时补录最近 2~4 个经期开始日期（升序、不重复、保留真实间隔、不晚于今天） */
   period_start_dates?: string[];
 }
 
@@ -108,6 +108,8 @@ export interface ResearchSummary extends StatusResponse {
     metrics?: Record<string, Record<string, number>>;
   };
   forecast_evaluation?: ForecastEvaluation;
+  lifestyle_evaluation?: LifestyleEvaluation;
+  lifestyle_coverage?: LifestyleCoverage;
   recommendations: string[];
 }
 
@@ -182,6 +184,8 @@ export interface ForecastEvaluation {
         n_splits?: number;
         training_samples?: number;
         excluded_unseen_cases?: number;
+        candidate_samples?: number;
+        abstained_samples?: number;
         skipped_empty_folds?: number;
         intervals?: Partial<
           Record<
@@ -238,11 +242,14 @@ export interface PredictionResponseData {
 
 export interface PredictionResponse extends StatusResponse {
   prediction: PredictionResponseData | null;
+  data_quality_warnings?: string[] | null;
 }
 
 // ---------------------------------------------------------------------------
 // Stats 模块（/api/v1/stats）—— 日历与看板共用
 // ---------------------------------------------------------------------------
+
+export type TrackingKind = 'unknown' | 'missed_tracking' | 'true_long_interval' | 'no_onset';
 
 export interface CycleRead {
   cycle_id: number;
@@ -250,13 +257,15 @@ export interface CycleRead {
   end_date?: string | null;
   cycle_length?: number | null;
   bleeding_days?: number | null;
+  tracking_kind?: TrackingKind | null;
+  tracking_as_of_date?: string | null;
 }
 
 export interface DailyLogSummary {
   log_date: string;
-  mood_level: number;
-  cramps_severity: number;
-  is_exercise: boolean;
+  mood_level: number | null;
+  cramps_severity: number | null;
+  is_exercise: boolean | null;
   exercise_type?: string | null;
   journal_text?: string | null;
 }
@@ -291,48 +300,55 @@ export type CycleOperationResponse = StatusResponse;
 // ---------------------------------------------------------------------------
 
 export interface SymptomLevels {
-  headache: number;
-  bloat: number;
-  breast_tenderness: number;
-  fatigue: number;
+  headache: number | null;
+  bloat: number | null;
+  breast_tenderness: number | null;
+  fatigue: number | null;
 }
 
 export interface DailyLogRequest {
   log_date: string;
-  mood_level: number;
-  cramps_severity: number;
-  is_exercise: boolean;
-  is_intercourse: boolean;
+  mood_level?: number | null;
+  cramps_severity?: number | null;
+  is_exercise?: boolean | null;
+  is_intercourse?: boolean | null;
   exercise_type?: string | null;
-  exercise_minutes: number;
+  exercise_minutes?: number | null;
+  exercise_intensity?: number | null;
+  stress_level?: number | null;
   diet_tag?: string | null;
   journal_text?: string | null;
-  // --- 新增自记录维度（睡眠/熬夜、用药、症状明细）---
-  sleep_duration_minutes?: number;
-  sleep_quality?: number;
-  is_late_night?: boolean;
-  is_medication?: boolean;
+  sleep_duration_minutes?: number | null;
+  sleep_quality?: number | null;
+  sleep_start_minutes?: number | null;
+  is_late_night?: boolean | null;
+  is_night_shift?: boolean | null;
+  is_medication?: boolean | null;
   medication_note?: string | null;
   symptom_levels?: SymptomLevels | null;
 }
 
 export interface DailyLogData extends DailyLogRequest {
   log_date: string;
-  mood_level: number;
-  cramps_severity: number;
-  is_exercise: boolean;
-  is_intercourse: boolean;
-  exercise_minutes: number;
-  sleep_duration_minutes: number;
-  sleep_quality: number;
-  is_late_night: boolean;
-  is_medication: boolean;
+  mood_level: number | null;
+  cramps_severity: number | null;
+  is_exercise: boolean | null;
+  is_intercourse: boolean | null;
+  exercise_minutes: number | null;
+  sleep_duration_minutes: number | null;
+  sleep_quality: number | null;
+  is_late_night: boolean | null;
+  is_medication: boolean | null;
   medication_note: string | null;
   symptom_levels: SymptomLevels;
+  recording_version?: number;
+  recorded_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface DailyLogResponse extends StatusResponse {
   ai_health_advice: string[];
+  advice_source?: string;
 }
 
 export interface DailyLogReadResponse extends StatusResponse {
@@ -358,4 +374,47 @@ export interface ReportData {
 
 export interface ReportResponse extends StatusResponse {
   report: ReportData;
+}
+
+export interface LifestyleScore {
+  samples: number;
+  mae?: number;
+  hit_rate_within_2d?: number;
+  delta_mae_vs_base?: number;
+  interval_samples?: number;
+  interval_unavailable_samples?: number;
+  coverage_pct?: number;
+  mean_width_days?: number;
+}
+export interface LifestyleProtocol {
+  samples: number;
+  candidate_samples: number;
+  skipped_empty_folds: number;
+  excluded_unseen_cases: number;
+  metrics: Record<string, LifestyleScore>;
+  coverage_groups: Record<string, Record<string, LifestyleScore>>;
+}
+export interface LifestyleEvaluation {
+  available: boolean;
+  message?: string;
+  feature_version?: string;
+  pipeline_matches_report?: boolean;
+  generated_at?: string;
+  dataset?: { source: string; n_users: number };
+  data_as_of?: string;
+  calibration_cutoff?: string;
+  test_cutoff?: string;
+  target_coverage_pct?: number;
+  eligible_cases?: number;
+  exclusions?: Record<string, number>;
+  stages?: Record<string, { target: string; protocols: Record<string, LifestyleProtocol> }>;
+}
+export interface LifestyleCoverage {
+  total: number;
+  legacy: number;
+  recorded: number;
+  sleep: number;
+  stress: number;
+  exercise: number;
+  intensity: number;
 }

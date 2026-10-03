@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.database import transaction
+from app.repositories.cycle_research_repository import record_cycle_revisions
 
 
 def plan_repairs(rows: list[dict]) -> list[dict]:
@@ -20,8 +21,8 @@ def plan_repairs(rows: list[dict]) -> list[dict]:
         if following and following["user_id"] != row["user_id"]:
             following = None
         length = (following["start_date"] - row["start_date"]).days if following else None
-        # Respect the database's existing length constraint; report these separately.
-        if length is not None and not 1 <= length <= 120:
+        # Storage preserves long intervals after migration 0006.
+        if length is not None and length <= 0:
             continue
         end, bleeding = row["end_date"], row["bleeding_days"]
         legacy = (
@@ -76,6 +77,8 @@ def repair_history(*, apply: bool = False, backup: Path | None = None) -> dict:
                         (after["cycle_length"], after["end_date"], after["bleeding_days"],
                          before["cycle_id"], before["user_id"]),
                     )
+                for user_id in sorted({item["before"]["user_id"] for item in repairs}):
+                    record_cycle_revisions(cursor, user_id, source="repair_snapshot")
     return {"mode": "apply" if apply else "dry_run", "records_scanned": len(rows),
             "records_to_repair": len(repairs), "gaps_requiring_manual_review": invalid_gaps}
 

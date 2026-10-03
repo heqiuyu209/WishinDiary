@@ -3,6 +3,7 @@ import statistics
 from datetime import timedelta
 
 from app.ml.contract import MODEL_VERSION
+from app.ml.prediction_scope import history_is_supported
 
 _DISCLAIMER = (
     "本预测由统计模型生成，仅供参考，不能用于诊断、治疗、避孕或紧急医疗判断。"
@@ -13,11 +14,11 @@ _DISCLAIMER = (
 def build_basic_prediction(history: list[dict], last_start) -> dict | None:
     """Use only completed history available at the prediction anchor."""
     lengths = [float(r["cycle_length"]) for r in history if r.get("cycle_length") is not None]
-    if not lengths or last_start is None:
+    if not lengths or last_start is None or not history_is_supported(history):
         return None
 
-    # 医学合理范围（与补录校验一致的宽松口径 15~60）内的长度作为个人基线
-    plausible = [x for x in lengths if 15 <= x <= 60.0]
+    # This is the model history range, not a medical normality criterion.
+    plausible = [x for x in lengths if 15 <= x <= 45.0]
     if plausible:
         personal_mean = sum(plausible) / len(plausible)
         std = statistics.pstdev(plausible) if len(plausible) >= 2 else 0.0
@@ -30,13 +31,15 @@ def build_basic_prediction(history: list[dict], last_start) -> dict | None:
 
     pred_length = int(round(personal_mean))
     raw_predicted = pred_length
-    pred_length = max(21, min(pred_length, 45))
+    if not 21 <= pred_length <= 45:
+        return None
 
     next_start = last_start + timedelta(days=pred_length)
     ovulation_date = next_start - timedelta(days=14)
 
-    ci_low = float(max(15, round(pred_length - std, 2)))
-    ci_high = float(min(45, round(pred_length + std, 2)))
+    interval = ({"low": round(pred_length - std, 2), "high": round(pred_length + std, 2),
+                 "note": "个人历史均值附近的描述性波动范围，不是经过校准的覆盖保证；样本较少时不确定性仍未知。"}
+                if len(plausible) >= 2 and std > 0 else None)
 
     return {
         "last_period_start": last_start.isoformat(),
@@ -49,16 +52,11 @@ def build_basic_prediction(history: list[dict], last_start) -> dict | None:
         "fertile_window_end": (ovulation_date + timedelta(days=1)).isoformat(),
         "medical_guardrail_note": (
             f"基于个人经期历史的基础统计量预测（使用 {len(plausible) or len(lengths)} "
-            "条完整周期长度），结果已限制在 21-45 天医学正常范围。"
+            "条完整周期长度）。模型适用范围不代表医学正常范围；不能据此判断身体状态。"
         ),
         "data_quality_warnings": None,
         "features_info": "个人基础统计量模式（数据不足 4 个完整周期时启用）",
         "model_version": MODEL_VERSION,
-        "confidence_interval": {
-            "low": ci_low,
-            "high": ci_high,
-            "note": "基于个人完整周期长度的基础统计区间（样本较少，仅供参考）",
-        },
+        "confidence_interval": interval,
         "disclaimer": _DISCLAIMER,
     }
-

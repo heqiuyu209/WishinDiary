@@ -8,7 +8,7 @@ test('切换日期加载期间禁止保存，加载完成后只保存目标日�
   const second = new Date(first.getFullYear(), first.getMonth(), 14, 12);
   await page.clock.setFixedTime(first);
   await registerAndLogin(page, uniqueUsername());
-  const save = page.getByRole('button', { name: '保存档案并生成分析', exact: true });
+  const save = page.getByRole('button', { name: '保存档案', exact: true });
   await expect(save).toBeEnabled();
   await page.locator('textarea').fill('synthetic first-day note');
   const [firstSave] = await Promise.all([

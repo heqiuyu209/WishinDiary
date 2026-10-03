@@ -26,7 +26,10 @@ EXPECTED_TABLES = {
     "reminder_deliveries",
     "users",
     "cycles",
+    "cycle_revisions",
+    "cycle_tracking_events",
     "daily_logs",
+    "daily_log_revisions",
     "prediction_logs",
     "login_attempts",
     "alembic_version",
@@ -169,3 +172,28 @@ def test_snapshot_migration_preserves_legacy_logs_without_guessing_anchor(migrat
     finally:
         conn.close()
         command.upgrade(cfg, "head")
+
+
+def test_legacy_lifestyle_rows_are_not_backdated(migration_db):
+    cfg = _alembic_cfg(migration_db)
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "0006_observed_intervals")
+    conn = pymysql.connect(host=settings.DB_HOST, user=settings.DB_USER,
+                           password=settings.DB_PASSWORD, database=migration_db, autocommit=True)
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("INSERT INTO users (username,password_hash) VALUES ('legacy_lifestyle','fixture')")
+            user_id = cursor.lastrowid
+            cursor.execute("INSERT INTO daily_logs (user_id,log_date,created_at) VALUES (%s,'2024-01-01','2024-01-01 00:00:00')", (user_id,))
+        command.upgrade(cfg, "head")
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT recording_version,recorded_at,sleep_duration_minutes FROM daily_logs")
+            assert cursor.fetchone() == (0, None, 0)
+            cursor.execute("SELECT source,known_at FROM daily_log_revisions")
+            source, known_at = cursor.fetchone()
+            assert source == "legacy_unknown" and known_at.year >= 2026
+            cursor.execute("DELETE FROM users WHERE user_id=%s", (user_id,))
+        command.downgrade(cfg, "0006_observed_intervals")
+        command.upgrade(cfg, "head")
+    finally:
+        conn.close()

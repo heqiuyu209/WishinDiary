@@ -10,7 +10,9 @@ from datetime import date, datetime
 
 import pymysql
 
+from app.repositories.cycle_research_repository import record_cycle_revisions, mark_cycle_history_reset
 from app.core.audit import audit
+from app.core.calendar_time import user_today
 from app.core.database import transaction
 from app.core.errors import AppError
 from app.repositories import (
@@ -19,7 +21,6 @@ from app.repositories import (
     get_cycle_for_log_end,
     get_next_cycle,
     get_prev_cycle,
-    get_unclosed_cycle_for_update,
     get_conflicting_closed_cycle,
     insert_cycle,
     recalculate_cycle_lengths,
@@ -57,25 +58,17 @@ class CycleService:
         下一次开始只确定上一周期长度，不代表知道上一经期的结束日。
         历史 end_date=None 表示未记录；只有最新记录可能是进行中的经期。
         """
-        if start_date > date.today():
-            raise AppError(400, "invalid_input", "开始日期不能晚于今天")
-
         try:
             with transaction() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute("SELECT user_id FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
-                    # 0. 行级排他锁，防止并发读写
-                    unclosed_cycle = get_unclosed_cycle_for_update(cursor, user_id)
-
-                    # 1. 若存在进行中的周期，新开始日期不能早于/等于其开始日
-                    if unclosed_cycle:
-                        prev_start = _normalize_date(unclosed_cycle["start_date"])
-                        if start_date <= prev_start:
-                            raise AppError(
-                                400,
-                                "conflict",
-                                "存在进行中的周期：新周期开始日期不能早于或等于上个未结束周期",
-                            )
+                    if start_date > user_today(cursor, user_id):
+                        raise AppError(400, "invalid_input", "开始日期不能晚于今天")
+                    # Missing end dates are unknown, not continuous bleeding.
+                    # Serialize on the user; only reject actual duplicate/known overlap.
+                    cursor.execute("SELECT cycle_id FROM cycles WHERE user_id = %s AND start_date = %s", (user_id, start_date))
+                    if cursor.fetchone():
+                        raise AppError(400, "conflict", "该日期已经存在周期记录")
 
                     # 2. 与已记录的经期区间校验。
                     conflicting = get_conflicting_closed_cycle(cursor, user_id, start_date)
@@ -89,6 +82,7 @@ class CycleService:
                     # 3. 写入新周期 (利用 UNIQUE KEY uk_user_start 兜底幂等性)
                     insert_cycle(cursor, user_id, start_date)
                     recalculate_cycle_lengths(cursor, user_id)
+                    record_cycle_revisions(cursor, user_id)
 
                     # 4. 对上一周期的首次前瞻快照回填；不按实际结果挑选最接近的预测。
                     pending = get_pending_prediction_for_reconcile(cursor, user_id, start_date)
@@ -119,13 +113,12 @@ class CycleService:
         1. 指定 cycle_id 时，可补录或修正历史经期；
         2. 未指定时只匹配最新周期，不把历史漏记误判为当前经期。
         """
-        if end_date > date.today():
-            raise AppError(400, "invalid_input", "结束日期不能晚于今天")
-
         try:
             with transaction() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute("SELECT user_id FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
+                    if end_date > user_today(cursor, user_id):
+                        raise AppError(400, "invalid_input", "结束日期不能晚于今天")
                     active_cycle = get_cycle_for_log_end(cursor, user_id, cycle_id)
                     if not active_cycle:
                         raise AppError(400, "invalid_input", "未找到对应的经期开始记录，请先标记开始。")
@@ -156,6 +149,7 @@ class CycleService:
 
                     # 重算所有周期的 cycle_length（周期长度 = 下一周期开始 - 本周期开始）
                     recalculate_cycle_lengths(cursor, user_id)
+                    record_cycle_revisions(cursor, user_id)
 
             audit("cycle.log_end", actor_user_id=user_id, success=True, details={"end_date": end_date.isoformat(), "cycle_id": active_cycle["cycle_id"]})
             return {"status": "success", "message": "🏁 成功标记经期结束！数据已更新。"}
@@ -181,6 +175,7 @@ class CycleService:
             with transaction() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute("SELECT user_id FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
+                    today = user_today(cursor, user_id)
                     cycle = get_cycle_by_id(cursor, user_id, cycle_id)
                     if not cycle:
                         raise AppError(404, "not_found", "周期不存在")
@@ -188,11 +183,11 @@ class CycleService:
                     new_start = start_date if start_date is not _UNSET else cycle["start_date"]
                     if new_start is None:
                         raise AppError(422, "validation_error", "开始日期不能为空")
-                    if new_start > date.today():
+                    if new_start > today:
                         raise AppError(400, "invalid_input", "开始日期不能晚于今天")
 
                     new_end = end_date if end_date is not _UNSET else cycle["end_date"]
-                    if new_end is not None and new_end > date.today():
+                    if new_end is not None and new_end > today:
                         raise AppError(400, "invalid_input", "结束日期不能晚于今天")
                     if new_end is not None and new_end < new_start:
                         raise AppError(400, "invalid_input", "结束日期不能早于开始日期")
@@ -219,6 +214,7 @@ class CycleService:
                         bleeding_days = None
                     update_cycle_dates(cursor, cycle_id, new_start, new_end, bleeding_days)
                     recalculate_cycle_lengths(cursor, user_id)
+                    record_cycle_revisions(cursor, user_id)
 
             audit("cycle.update", actor_user_id=user_id, success=True, details={"cycle_id": cycle_id, "start_date": new_start.isoformat(), "end_date": new_end.isoformat() if new_end else None})
             return {"status": "success", "message": "✅ 周期已更新！"}
@@ -238,8 +234,10 @@ class CycleService:
                     if not cycle:
                         raise AppError(404, "not_found", "周期不存在")
 
+                    mark_cycle_history_reset(cursor, user_id)
                     delete_cycle(cursor, cycle_id)
                     recalculate_cycle_lengths(cursor, user_id)
+                    record_cycle_revisions(cursor, user_id)
 
             return {"status": "success", "message": "🗑️ 周期已删除！"}
         except AppError:

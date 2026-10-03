@@ -11,6 +11,7 @@ class UserProfile(BaseModel):
     user_id: int
     username: str
     created_at: str | None = None
+    cycle_history_reset_at: str | None = None
 
 
 class ExportUserDataResponse(StatusResponse):
@@ -19,7 +20,10 @@ class ExportUserDataResponse(StatusResponse):
     exported_at: str = Field(..., description="导出时间（UTC ISO 格式）")
     user: UserProfile
     cycles: list[dict[str, Any]] = Field(default_factory=list)
+    cycle_revisions: list[dict[str, Any]] = Field(default_factory=list)
+    cycle_tracking_events: list[dict[str, Any]] = Field(default_factory=list)
     daily_logs: list[dict[str, Any]] = Field(default_factory=list)
+    daily_log_revisions: list[dict[str, Any]] = Field(default_factory=list)
     prediction_logs: list[dict[str, Any]] = Field(default_factory=list)
 
 
