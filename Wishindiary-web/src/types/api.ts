@@ -247,12 +247,16 @@ export interface PredictionResponse extends StatusResponse {
 // Stats 模块（/api/v1/stats）—— 日历与看板共用
 // ---------------------------------------------------------------------------
 
+export type TrackingKind = 'unknown' | 'missed_tracking' | 'true_long_interval' | 'no_onset';
+
 export interface CycleRead {
   cycle_id: number;
   start_date: string;
   end_date?: string | null;
   cycle_length?: number | null;
   bleeding_days?: number | null;
+  tracking_kind?: TrackingKind | null;
+  tracking_as_of_date?: string | null;
 }
 
 export interface DailyLogSummary {

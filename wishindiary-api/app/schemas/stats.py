@@ -15,6 +15,8 @@ class CycleRead(BaseModel):
     end_date: date | None = None
     cycle_length: int | None = None
     bleeding_days: int | None = None
+    tracking_kind: str | None = None
+    tracking_as_of_date: date | None = None
 
 
 class DailyLogSummary(BaseModel):

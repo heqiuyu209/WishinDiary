@@ -15,8 +15,10 @@ from app.schemas.cycle import (
     CycleUpdateRequest,
     LogEndRequest,
     LogStartRequest,
+    TrackingRequest,
 )
 from app.services import CycleService
+from app.services.tracking_service import TrackingService
 from app.services.cycle_service import _UNSET
 
 router = APIRouter(prefix="/api/v1", tags=["Cycles"])
@@ -91,4 +93,11 @@ def delete_cycle_endpoint(
     """删除一个误操作的周期。"""
     result = _cycle_service.delete_cycle(user_id, cycle_id)
     _audit_cycle("cycle.delete", user_id, _client_ip(request), result)
+    return result
+
+
+@router.post("/cycles/{cycle_id}/tracking", response_model=CycleOperationResponse)
+def confirm_tracking(cycle_id: int, req: TrackingRequest, user_id: int = Depends(get_current_user_id)):
+    result = TrackingService().confirm(user_id, cycle_id, req)
+    audit("cycle.tracking", actor_user_id=user_id, success=True, details={"cycle_id": cycle_id})
     return result

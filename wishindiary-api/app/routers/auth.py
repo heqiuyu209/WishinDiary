@@ -13,6 +13,7 @@ from app.core.database import get_db_connection, transaction
 from app.core.audit import audit
 from app.schemas.auth import LoginRequest, RegisterRequest
 from app.repositories.cycle_repository import insert_cycle, recalculate_cycle_lengths
+from app.repositories.cycle_research_repository import record_cycle_revisions
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 logger = logging.getLogger(__name__)
@@ -219,6 +220,7 @@ def register(req: RegisterRequest):
                 for start_date in req.period_start_dates[1:]:
                     insert_cycle(cursor, new_user_id, start_date)
                 recalculate_cycle_lengths(cursor, new_user_id)
+                record_cycle_revisions(cursor, new_user_id)
         connection.commit()
         audit("auth.register", actor_user_id=new_user_id, username=req.username, success=True)
         email_sent = False

@@ -2,6 +2,7 @@ import type { AxiosResponse } from 'axios';
 import httpClient from '../../shared/api/httpClient';
 import type {
   CycleOperationResponse,
+  TrackingKind,
   CycleUpdateRequest,
   DailyLogReadResponse,
   DailyLogRequest,
@@ -38,3 +39,10 @@ export const updateCycleApi = (
 
 export const deleteCycleApi = (cycleId: number): Promise<AxiosResponse<CycleOperationResponse>> =>
   httpClient.delete(`/api/v1/cycles/${cycleId}`);
+
+export const confirmTrackingApi = (
+  cycleId: number,
+  kind: TrackingKind,
+  asOfDate: string,
+): Promise<AxiosResponse<CycleOperationResponse>> =>
+  httpClient.post(`/api/v1/cycles/${cycleId}/tracking`, { kind, as_of_date: asOfDate });

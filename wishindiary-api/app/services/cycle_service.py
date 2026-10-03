@@ -10,6 +10,7 @@ from datetime import date, datetime
 
 import pymysql
 
+from app.repositories.cycle_research_repository import record_cycle_revisions, mark_cycle_history_reset
 from app.core.audit import audit
 from app.core.calendar_time import user_today
 from app.core.database import transaction
@@ -81,6 +82,7 @@ class CycleService:
                     # 3. 写入新周期 (利用 UNIQUE KEY uk_user_start 兜底幂等性)
                     insert_cycle(cursor, user_id, start_date)
                     recalculate_cycle_lengths(cursor, user_id)
+                    record_cycle_revisions(cursor, user_id)
 
                     # 4. 对上一周期的首次前瞻快照回填；不按实际结果挑选最接近的预测。
                     pending = get_pending_prediction_for_reconcile(cursor, user_id, start_date)
@@ -147,6 +149,7 @@ class CycleService:
 
                     # 重算所有周期的 cycle_length（周期长度 = 下一周期开始 - 本周期开始）
                     recalculate_cycle_lengths(cursor, user_id)
+                    record_cycle_revisions(cursor, user_id)
 
             audit("cycle.log_end", actor_user_id=user_id, success=True, details={"end_date": end_date.isoformat(), "cycle_id": active_cycle["cycle_id"]})
             return {"status": "success", "message": "🏁 成功标记经期结束！数据已更新。"}
@@ -211,6 +214,7 @@ class CycleService:
                         bleeding_days = None
                     update_cycle_dates(cursor, cycle_id, new_start, new_end, bleeding_days)
                     recalculate_cycle_lengths(cursor, user_id)
+                    record_cycle_revisions(cursor, user_id)
 
             audit("cycle.update", actor_user_id=user_id, success=True, details={"cycle_id": cycle_id, "start_date": new_start.isoformat(), "end_date": new_end.isoformat() if new_end else None})
             return {"status": "success", "message": "✅ 周期已更新！"}
@@ -230,8 +234,10 @@ class CycleService:
                     if not cycle:
                         raise AppError(404, "not_found", "周期不存在")
 
+                    mark_cycle_history_reset(cursor, user_id)
                     delete_cycle(cursor, cycle_id)
                     recalculate_cycle_lengths(cursor, user_id)
+                    record_cycle_revisions(cursor, user_id)
 
             return {"status": "success", "message": "🗑️ 周期已删除！"}
         except AppError:

@@ -20,6 +20,7 @@ vi.mock('../../modules/dashboard/api', () => ({
 }));
 vi.mock('../../modules/calendar/api', () => ({
   logStartApi: vi.fn(),
+  confirmTrackingApi: vi.fn(),
   logEndApi: vi.fn(),
   saveDailyLogApi: vi.fn(),
   getDailyLogApi: vi.fn(),
@@ -29,7 +30,12 @@ vi.mock('../../modules/calendar/api', () => ({
 }));
 
 import { getPredictionApi, getStatsApi } from '../../modules/dashboard/api';
-import { getDailyLogApi, logEndApi, saveDailyLogApi } from '../../modules/calendar/api';
+import {
+  confirmTrackingApi,
+  getDailyLogApi,
+  logEndApi,
+  saveDailyLogApi,
+} from '../../modules/calendar/api';
 
 const getStatsApiMock = vi.mocked(getStatsApi);
 const getPredictionApiMock = vi.mocked(getPredictionApi);
@@ -200,6 +206,16 @@ describe('useCycleCalendar', () => {
     expect(calendar.canConfirmEnd.value).toBe(true);
     await calendar.markEnd();
     expect(logEndApiMock.mock.calls[0]?.[0]).toEqual({ end_date: '2020-01-05', cycle_id: 1 });
+    app.unmount();
+  });
+
+  it('核对操作提交所选周期、类型与日期', async () => {
+    vi.mocked(confirmTrackingApi).mockResolvedValue(ok({ status: 'success' }) as never);
+    const { app, calendar } = await makeCalendar();
+    calendar.selectedDate.value = new Date(2020, 0, 3);
+    await nextTick();
+    await calendar.confirmTracking('missed_tracking');
+    expect(confirmTrackingApi).toHaveBeenCalledWith(1, 'missed_tracking', '2020-01-03');
     app.unmount();
   });
 

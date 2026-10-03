@@ -1,6 +1,13 @@
 import { computed, onMounted, reactive, ref, watch, type Ref } from 'vue';
 import type { AxiosResponse } from 'axios';
-import { deleteCycleApi, getDailyLogApi, logEndApi, logStartApi, saveDailyLogApi } from '../api';
+import {
+  confirmTrackingApi,
+  deleteCycleApi,
+  getDailyLogApi,
+  logEndApi,
+  logStartApi,
+  saveDailyLogApi,
+} from '../api';
 import { getPredictionApi, getStatsApi } from '../../dashboard/api';
 import { extractApiErrorMessage } from '../../../shared/api/httpClient';
 import {
@@ -14,6 +21,7 @@ import {
 import type {
   CycleOperationResponse,
   CycleRead,
+  TrackingKind,
   DailyLogData,
   DailyLogRequest,
   DailyLogResponse,
@@ -422,6 +430,24 @@ export function useCycleCalendar() {
     }
   };
 
+  const trackingSaving = ref(false);
+  const confirmTracking = async (kind: TrackingKind) => {
+    if (!selectedCycle.value || trackingSaving.value) return;
+    trackingSaving.value = true;
+    try {
+      const response = await confirmTrackingApi(
+        selectedCycle.value.cycle_id,
+        kind,
+        formatDate(selectedDate.value),
+      );
+      applySuccess(response, '核对信息已保存');
+    } catch (err) {
+      handleRequestError(err, '核对信息保存失败');
+    } finally {
+      trackingSaving.value = false;
+    }
+  };
+
   const clearSelectedCycle = async () => {
     if (selectedCycle.value) {
       await clearCycle(selectedCycle.value.cycle_id);
@@ -509,6 +535,8 @@ export function useCycleCalendar() {
     markEnd,
     saveLog,
     clearSelectedCycle,
+    confirmTracking,
+    trackingSaving,
     fetchData,
   };
 }

@@ -34,6 +34,8 @@ const {
   markEnd,
   saveLog,
   clearSelectedCycle,
+  confirmTracking,
+  trackingSaving,
 } = useCycleCalendar();
 </script>
 
@@ -97,6 +99,55 @@ const {
           @mark-end="markEnd"
           @clear="clearSelectedCycle"
         />
+        <div v-if="selectedCycle" class="mt-4 w-full rounded-2xl bg-slate-50 p-4 text-xs space-y-2">
+          <p class="font-semibold">核对开始日 {{ selectedCycle.start_date }} 的记录</p>
+          <p class="text-gray-500">
+            确认用于记录质量与离线研究，不会自动补造日期或修改线上预测。选“漏记”后请按实际日期补录。
+          </p>
+          <p v-if="selectedCycle.tracking_kind" class="text-gray-500">
+            最近核对：{{
+              {
+                unknown: '不确定',
+                missed_tracking: '有漏记',
+                true_long_interval: '真实间隔',
+                no_onset: '截至确认日尚未开始下次经期',
+              }[selectedCycle.tracking_kind]
+            }}（{{ selectedCycle.tracking_as_of_date }}）
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <template v-if="selectedCycle.cycle_length != null">
+              <button
+                :disabled="trackingSaving || isSelectedFuture"
+                class="border rounded-lg p-2"
+                @click="confirmTracking('missed_tracking')"
+              >
+                我漏记了开始日
+              </button>
+              <button
+                :disabled="trackingSaving || isSelectedFuture"
+                class="border rounded-lg p-2"
+                @click="confirmTracking('true_long_interval')"
+              >
+                确认是真实间隔
+              </button>
+              <button
+                :disabled="trackingSaving || isSelectedFuture"
+                class="border rounded-lg p-2"
+                @click="confirmTracking('unknown')"
+              >
+                暂不确定
+              </button>
+            </template>
+            <button
+              v-else
+              :disabled="trackingSaving || isSelectedFuture"
+              class="border rounded-lg p-2"
+              @click="confirmTracking('no_onset')"
+            >
+              截至所选日期，尚未开始下次经期
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="md:col-span-6">

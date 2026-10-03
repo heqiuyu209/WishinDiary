@@ -26,6 +26,8 @@ EXPECTED_TABLES = {
     "reminder_deliveries",
     "users",
     "cycles",
+    "cycle_revisions",
+    "cycle_tracking_events",
     "daily_logs",
     "daily_log_revisions",
     "prediction_logs",
