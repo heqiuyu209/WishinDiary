@@ -83,7 +83,7 @@ const emit = defineEmits<{
       </button>
     </div>
     <p v-if="hasOpenCycleHint" class="text-[11px] text-gray-400">
-      已选开始日期后，点击日历上后续日期即可连续预览区间，再用“标记结束”保存。
+      结束日未记录。请核对预览的开始日，选择该次经期的实际结束日后保存；预览不代表持续出血。
     </p>
   </div>
 </template>

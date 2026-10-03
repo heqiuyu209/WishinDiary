@@ -19,7 +19,6 @@ from app.repositories import (
     get_cycle_for_log_end,
     get_next_cycle,
     get_prev_cycle,
-    get_unclosed_cycle_for_update,
     get_conflicting_closed_cycle,
     insert_cycle,
     recalculate_cycle_lengths,
@@ -64,18 +63,11 @@ class CycleService:
             with transaction() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute("SELECT user_id FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
-                    # 0. 行级排他锁，防止并发读写
-                    unclosed_cycle = get_unclosed_cycle_for_update(cursor, user_id)
-
-                    # 1. 若存在进行中的周期，新开始日期不能早于/等于其开始日
-                    if unclosed_cycle:
-                        prev_start = _normalize_date(unclosed_cycle["start_date"])
-                        if start_date <= prev_start:
-                            raise AppError(
-                                400,
-                                "conflict",
-                                "存在进行中的周期：新周期开始日期不能早于或等于上个未结束周期",
-                            )
+                    # Missing end dates are unknown, not continuous bleeding.
+                    # Serialize on the user; only reject actual duplicate/known overlap.
+                    cursor.execute("SELECT cycle_id FROM cycles WHERE user_id = %s AND start_date = %s", (user_id, start_date))
+                    if cursor.fetchone():
+                        raise AppError(400, "conflict", "该日期已经存在周期记录")
 
                     # 2. 与已记录的经期区间校验。
                     conflicting = get_conflicting_closed_cycle(cursor, user_id, start_date)

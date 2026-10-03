@@ -6,11 +6,11 @@ def test_create_cycle_and_duplicate_prevention(client, auth_header):
     res1 = client.post("/api/v1/log_start", json=log_data, headers=auth_header)
     assert res1.status_code == 200
 
-    # 重复打卡同一天：仍存在进行中周期，应返回 400 conflict
+    # 重复打卡同一天不能创建第二条记录。
     res2 = client.post("/api/v1/log_start", json=log_data, headers=auth_header)
     assert res2.status_code == 400
     assert res2.json()["error"]["code"] == "conflict"
-    assert "存在进行中的周期" in res2.json()["error"]["message"]
+    assert "已经存在" in res2.json()["error"]["message"]
 
 
 def test_daily_log_creation(client, auth_header):
@@ -29,8 +29,8 @@ def test_daily_log_creation(client, auth_header):
     assert res.status_code == 200
 
 
-def test_log_start_rejects_backdated_start_when_open_cycle_exists(client, auth_header):
-    """当前存在进行中的周期时，不允许再插入更早的开始日期。"""
+def test_log_start_allows_backfill_when_latest_end_is_unknown(client, auth_header):
+    """未知结束日不能阻止历史开始日补录。"""
     res1 = client.post("/api/v1/log_start", json={"start_date": "2026-08-01"}, headers=auth_header)
     assert res1.status_code == 200
 
@@ -38,8 +38,26 @@ def test_log_start_rejects_backdated_start_when_open_cycle_exists(client, auth_h
     assert res2.status_code == 200
 
     res3 = client.post("/api/v1/log_start", json={"start_date": "2026-08-05"}, headers=auth_header)
-    assert res3.status_code == 400
-    assert "进行中的周期" in res3.json()["error"]["message"]
+    assert res3.status_code == 200, res3.text
+    rows = client.get("/api/v1/stats").json()["cycles"]
+    assert [row["cycle_length"] for row in rows] == [4, 1, None]
+    assert all(row["end_date"] is None for row in rows)
+
+
+def test_long_observations_survive_insert_edit_and_delete(client, auth_header):
+    for start in ["2024-01-01", "2024-03-11", "2024-05-20"]:
+        assert client.post("/api/v1/log_start", json={"start_date": start}).status_code == 200
+    first, middle, latest = client.get("/api/v1/stats").json()["cycles"]
+    assert client.delete(f"/api/v1/cycles/{middle['cycle_id']}").status_code == 200
+    rows = client.get("/api/v1/stats").json()["cycles"]
+    assert rows[0]["cycle_length"] == 140
+    assert client.put(f"/api/v1/cycles/{latest['cycle_id']}", json={"start_date": "2024-06-29"}).status_code == 200
+    assert client.get("/api/v1/stats").json()["cycles"][0]["cycle_length"] == 180
+    assert client.post("/api/v1/log_start", json={"start_date": "2025-06-29"}).status_code == 200
+    assert client.get("/api/v1/stats").json()["cycles"][1]["cycle_length"] == 365
+    # Raw bleeding observations are also not capped by model eligibility.
+    assert client.post("/api/v1/log_end", json={"cycle_id": first['cycle_id'], "end_date": "2024-02-04"}).status_code == 200
+    assert client.get("/api/v1/stats").json()["cycles"][0]["bleeding_days"] == 35
 
 
 def test_log_end_rejects_overlap_when_cycle_id_is_specified(client, auth_header):

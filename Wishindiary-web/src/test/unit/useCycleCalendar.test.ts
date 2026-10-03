@@ -162,6 +162,25 @@ describe('useCycleCalendar', () => {
     app.unmount();
   });
 
+  it('历史结束日未知时，补录结束准确提交历史周期 ID', async () => {
+    logEndApiMock.mockResolvedValue(ok({ status: 'success', message: 'ok' }) as never);
+    const { app, calendar } = await makeCalendar();
+    getStatsApiMock.mockResolvedValue(
+      ok({
+        ...stats,
+        cycles: [{ ...closedCycle, end_date: null }, openCycle],
+      }) as never,
+    );
+    await calendar.fetchData();
+    calendar.selectedDate.value = new Date(2020, 0, 5);
+    await nextTick();
+    expect(calendar.endTargetCycle.value?.cycle_id).toBe(1);
+    expect(calendar.canConfirmEnd.value).toBe(true);
+    await calendar.markEnd();
+    expect(logEndApiMock.mock.calls[0]?.[0]).toEqual({ end_date: '2020-01-05', cycle_id: 1 });
+    app.unmount();
+  });
+
   it('saveLog 请求体携带新增自记录字段', async () => {
     saveDailyLogApiMock.mockResolvedValue(
       ok({ status: 'success', message: 'ok', ai_health_advice: ['ok'] }) as never,

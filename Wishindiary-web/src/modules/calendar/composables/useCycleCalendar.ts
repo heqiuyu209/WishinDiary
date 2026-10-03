@@ -125,7 +125,16 @@ export function useCycleCalendar() {
   const selectedClosedCycle = computed(() =>
     findSelectedClosedCycle(selectedDate.value, cycles.value),
   );
-  const selectedCycle = computed(() => selectedClosedCycle.value || openCycle.value);
+  const selectedUnknownCycle = computed(() => {
+    const target = formatDate(selectedDate.value);
+    const preceding = [...cycles.value]
+      .filter((cycle) => cycle.start_date <= target)
+      .sort((a, b) => a.start_date.localeCompare(b.start_date))
+      .at(-1);
+    return preceding && !preceding.end_date ? preceding : null;
+  });
+  const endTargetCycle = computed(() => selectedUnknownCycle.value || openCycle.value);
+  const selectedCycle = computed(() => selectedClosedCycle.value || endTargetCycle.value);
   const estimatedBleedingDays = computed(() => {
     const durations = cycles.value
       .map((cycle) => Number(cycle.bleeding_days))
@@ -137,7 +146,7 @@ export function useCycleCalendar() {
     return Math.max(1, Math.round(average));
   });
   const selectedPreviewRange = computed(() => {
-    const currentOpen = openCycle.value;
+    const currentOpen = endTargetCycle.value;
     if (!currentOpen) return null;
 
     const start = toLocalDate(currentOpen.start_date);
@@ -153,7 +162,7 @@ export function useCycleCalendar() {
   });
 
   const selectedPreviewMode = computed<'none' | 'default' | 'custom'>(() => {
-    if (!openCycle.value) return 'none';
+    if (!endTargetCycle.value) return 'none';
     if (manualEndDate.value) return 'custom';
     return 'default';
   });
@@ -171,7 +180,7 @@ export function useCycleCalendar() {
   });
 
   const canConfirmEnd = computed(() => {
-    const currentOpen = openCycle.value;
+    const currentOpen = endTargetCycle.value;
     if (!currentOpen) return false;
 
     const start = toLocalDate(currentOpen.start_date);
@@ -207,13 +216,13 @@ export function useCycleCalendar() {
       });
     });
 
-    if (selectedPreviewRange.value && openCycle.value) {
+    if (selectedPreviewRange.value && endTargetCycle.value) {
       attrs.push({
-        key: `cycle-preview-${openCycle.value.cycle_id}-${formatDate(selectedPreviewRange.value.start)}-${formatDate(selectedPreviewRange.value.end)}`,
+        key: `cycle-preview-${endTargetCycle.value.cycle_id}-${formatDate(selectedPreviewRange.value.start)}-${formatDate(selectedPreviewRange.value.end)}`,
         highlight: { color: 'red', fillMode: 'light' },
         dates: { start: selectedPreviewRange.value.start, end: selectedPreviewRange.value.end },
         order: 30,
-        customData: { cycle_id: openCycle.value.cycle_id, state: 'preview' },
+        customData: { cycle_id: endTargetCycle.value.cycle_id, state: 'preview' },
       });
     }
 
@@ -274,7 +283,7 @@ export function useCycleCalendar() {
     try {
       const res = await logEndApi({
         end_date: formatDate(manualEndDate.value || selectedDate.value),
-        cycle_id: openCycle.value?.cycle_id ?? null,
+        cycle_id: endTargetCycle.value?.cycle_id ?? null,
       });
       applySuccess(res, '标记经期结束');
     } catch (err) {
@@ -416,7 +425,7 @@ export function useCycleCalendar() {
 
   watch(selectedDate, (newDate) => {
     void loadDailyLogForDate(newDate);
-    const currentOpen = openCycle.value;
+    const currentOpen = endTargetCycle.value;
     if (!currentOpen) {
       manualEndDate.value = null;
       return;
@@ -450,6 +459,7 @@ export function useCycleCalendar() {
     isSelectedFuture,
     calendarMaxDate,
     openCycle,
+    endTargetCycle,
     selectedClosedCycle,
     selectedCycle,
     estimatedBleedingDays,

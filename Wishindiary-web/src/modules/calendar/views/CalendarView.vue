@@ -19,7 +19,7 @@ const {
   reloadDailyLog,
   isSelectedFuture,
   calendarMaxDate,
-  openCycle,
+  endTargetCycle,
   selectedClosedCycle,
   selectedCycle,
   estimatedBleedingDays,
@@ -76,12 +76,12 @@ const {
           :is-selected-future="isSelectedFuture"
           :can-confirm-end="canConfirmEnd"
           :has-selected-closed-cycle="!!selectedClosedCycle"
-          :has-open-cycle="!!openCycle"
+          :has-open-cycle="!!endTargetCycle"
           :preview-mode="selectedPreviewMode"
           :range-text="selectedRangeText"
           :estimated-bleeding-days="estimatedBleedingDays"
           :show-clear="!!selectedCycle"
-          :has-open-cycle-hint="!!openCycle"
+          :has-open-cycle-hint="!!endTargetCycle"
           @mark-start="markStart"
           @mark-end="markEnd"
           @clear="clearSelectedCycle"
