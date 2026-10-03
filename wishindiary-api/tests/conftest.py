@@ -103,6 +103,7 @@ def truncate_tables():
         cursor.execute("TRUNCATE TABLE reminder_deliveries;")
         cursor.execute("TRUNCATE TABLE email_verifications;")
         cursor.execute("TRUNCATE TABLE prediction_logs;")
+        cursor.execute("TRUNCATE TABLE daily_log_revisions;")
         cursor.execute("TRUNCATE TABLE daily_logs;")
         cursor.execute("TRUNCATE TABLE cycles;")
         cursor.execute("TRUNCATE TABLE users;")

@@ -20,8 +20,8 @@ def plan_repairs(rows: list[dict]) -> list[dict]:
         if following and following["user_id"] != row["user_id"]:
             following = None
         length = (following["start_date"] - row["start_date"]).days if following else None
-        # Respect the database's existing length constraint; report these separately.
-        if length is not None and not 1 <= length <= 120:
+        # Storage preserves long intervals after migration 0006.
+        if length is not None and length <= 0:
             continue
         end, bleeding = row["end_date"], row["bleeding_days"]
         legacy = (

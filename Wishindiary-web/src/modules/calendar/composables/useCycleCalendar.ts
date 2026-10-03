@@ -15,45 +15,80 @@ import type {
   CycleOperationResponse,
   CycleRead,
   DailyLogData,
+  DailyLogRequest,
   DailyLogResponse,
   PredictionResponseData,
 } from '../../../types/api';
 
 export interface DailyFormData {
-  mood_level: number;
-  cramps_severity: number;
-  is_exercise: boolean;
-  is_intercourse: boolean;
+  mood_level: number | null;
+  cramps_severity: number | null;
+  is_exercise: boolean | null;
+  is_intercourse: boolean | null;
   exercise_type: string;
-  exercise_minutes: number;
+  exercise_minutes: number | null;
+  exercise_intensity: number | null;
+  stress_level: number | null;
   diet_tag: string;
   journal_text: string;
-  // --- 新增自记录维度 ---
-  sleep_duration_minutes: number;
-  sleep_quality: number;
-  is_late_night: boolean;
-  is_medication: boolean;
+  sleep_duration_minutes: number | null;
+  sleep_quality: number | null;
+  sleep_start_minutes: number | null;
+  is_late_night: boolean | null;
+  is_night_shift: boolean | null;
+  is_medication: boolean | null;
   medication_note: string;
-  symptom_levels: { headache: number; bloat: number; breast_tenderness: number; fatigue: number };
+  symptom_levels: {
+    headache: number | null;
+    bloat: number | null;
+    breast_tenderness: number | null;
+    fatigue: number | null;
+  };
 }
 
 export function createDefaultDailyForm(): DailyFormData {
   return {
-    mood_level: 0,
-    cramps_severity: 0,
-    is_exercise: false,
-    is_intercourse: false,
+    mood_level: null,
+    cramps_severity: null,
+    is_exercise: null,
+    is_intercourse: null,
     exercise_type: '',
-    exercise_minutes: 30,
-    diet_tag: '清淡',
+    exercise_minutes: null,
+    exercise_intensity: null,
+    stress_level: null,
+    diet_tag: '',
     journal_text: '',
-    sleep_duration_minutes: 0,
-    sleep_quality: 0,
-    is_late_night: false,
-    is_medication: false,
+    sleep_duration_minutes: null,
+    sleep_quality: null,
+    sleep_start_minutes: null,
+    is_late_night: null,
+    is_night_shift: null,
+    is_medication: null,
     medication_note: '',
-    symptom_levels: { headache: 0, bloat: 0, breast_tenderness: 0, fatigue: 0 },
+    symptom_levels: { headache: null, bloat: null, breast_tenderness: null, fatigue: null },
   };
+}
+
+export function buildDailyLogPayload(form: DailyFormData, logDate: string): DailyLogRequest {
+  const result = { ...form, symptom_levels: { ...form.symptom_levels }, log_date: logDate };
+  const numericKeys = [
+    'mood_level',
+    'cramps_severity',
+    'exercise_minutes',
+    'exercise_intensity',
+    'stress_level',
+    'sleep_duration_minutes',
+    'sleep_quality',
+    'sleep_start_minutes',
+  ] as const;
+  for (const key of numericKeys) {
+    if (typeof result[key] !== 'number' || !Number.isFinite(result[key])) result[key] = null;
+  }
+  if (result.is_exercise === false) {
+    result.exercise_minutes = 0;
+    result.exercise_intensity = 0;
+  }
+  return result;
 }
 
 interface CalendarAttr {
@@ -301,11 +336,7 @@ export function useCycleCalendar() {
     const logDate = formatDate(selectedDate.value);
     dailyLogSaving.value = true;
     try {
-      const res = await saveDailyLogApi({
-        log_date: logDate,
-        ...dailyForm,
-        symptom_levels: { ...dailyForm.symptom_levels },
-      });
+      const res = await saveDailyLogApi(buildDailyLogPayload(dailyForm, logDate));
       if (logDate === formatDate(selectedDate.value)) applySuccess(res, '打卡成功');
     } catch (err) {
       if (logDate === formatDate(selectedDate.value)) handleRequestError(err, '保存失败');
@@ -315,27 +346,25 @@ export function useCycleCalendar() {
   };
 
   const fillDailyForm = (log: DailyLogData) => {
-    dailyForm.mood_level = log.mood_level;
-    dailyForm.cramps_severity = log.cramps_severity;
-    dailyForm.is_exercise = log.is_exercise;
-    dailyForm.is_intercourse = log.is_intercourse;
-    dailyForm.exercise_type = log.exercise_type ?? '';
-    dailyForm.exercise_minutes = log.exercise_minutes;
-    dailyForm.diet_tag = log.diet_tag ?? '';
-    dailyForm.journal_text = log.journal_text ?? '';
-    dailyForm.sleep_duration_minutes = log.sleep_duration_minutes ?? 0;
-    dailyForm.sleep_quality = log.sleep_quality ?? 0;
-    dailyForm.is_late_night = log.is_late_night ?? false;
-    dailyForm.is_medication = log.is_medication ?? false;
-    dailyForm.medication_note = log.medication_note ?? '';
-    dailyForm.symptom_levels = log.symptom_levels
-      ? {
-          headache: log.symptom_levels.headache ?? 0,
-          bloat: log.symptom_levels.bloat ?? 0,
-          breast_tenderness: log.symptom_levels.breast_tenderness ?? 0,
-          fatigue: log.symptom_levels.fatigue ?? 0,
-        }
-      : { headache: 0, bloat: 0, breast_tenderness: 0, fatigue: 0 };
+    const legacy = log.recording_version === 0;
+    Object.assign(dailyForm, createDefaultDailyForm());
+    const fields = Object.keys(dailyForm).filter((key) => key !== 'symptom_levels') as Array<
+      keyof Omit<DailyFormData, 'symptom_levels'>
+    >;
+    for (const key of fields) {
+      const value = log[key];
+      // Old defaults cannot tell "not filled" from an explicit zero/false.
+      const clean = legacy && (value === 0 || value === false) ? null : value;
+      Object.assign(dailyForm, {
+        [key]: clean ?? (typeof dailyForm[key] === 'string' ? '' : null),
+      });
+    }
+    for (const key of Object.keys(dailyForm.symptom_levels) as Array<
+      keyof DailyFormData['symptom_levels']
+    >) {
+      const value = log.symptom_levels?.[key] ?? null;
+      dailyForm.symptom_levels[key] = legacy && value === 0 ? null : value;
+    }
   };
 
   let dailyLogFetchSeq = 0;

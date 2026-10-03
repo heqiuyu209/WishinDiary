@@ -20,6 +20,7 @@ class ExportUserDataResponse(StatusResponse):
     user: UserProfile
     cycles: list[dict[str, Any]] = Field(default_factory=list)
     daily_logs: list[dict[str, Any]] = Field(default_factory=list)
+    daily_log_revisions: list[dict[str, Any]] = Field(default_factory=list)
     prediction_logs: list[dict[str, Any]] = Field(default_factory=list)
 
 

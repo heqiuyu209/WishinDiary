@@ -257,9 +257,9 @@ export interface CycleRead {
 
 export interface DailyLogSummary {
   log_date: string;
-  mood_level: number;
-  cramps_severity: number;
-  is_exercise: boolean;
+  mood_level: number | null;
+  cramps_severity: number | null;
+  is_exercise: boolean | null;
   exercise_type?: string | null;
   journal_text?: string | null;
 }
@@ -294,48 +294,55 @@ export type CycleOperationResponse = StatusResponse;
 // ---------------------------------------------------------------------------
 
 export interface SymptomLevels {
-  headache: number;
-  bloat: number;
-  breast_tenderness: number;
-  fatigue: number;
+  headache: number | null;
+  bloat: number | null;
+  breast_tenderness: number | null;
+  fatigue: number | null;
 }
 
 export interface DailyLogRequest {
   log_date: string;
-  mood_level: number;
-  cramps_severity: number;
-  is_exercise: boolean;
-  is_intercourse: boolean;
+  mood_level?: number | null;
+  cramps_severity?: number | null;
+  is_exercise?: boolean | null;
+  is_intercourse?: boolean | null;
   exercise_type?: string | null;
-  exercise_minutes: number;
+  exercise_minutes?: number | null;
+  exercise_intensity?: number | null;
+  stress_level?: number | null;
   diet_tag?: string | null;
   journal_text?: string | null;
-  // --- 新增自记录维度（睡眠/熬夜、用药、症状明细）---
-  sleep_duration_minutes?: number;
-  sleep_quality?: number;
-  is_late_night?: boolean;
-  is_medication?: boolean;
+  sleep_duration_minutes?: number | null;
+  sleep_quality?: number | null;
+  sleep_start_minutes?: number | null;
+  is_late_night?: boolean | null;
+  is_night_shift?: boolean | null;
+  is_medication?: boolean | null;
   medication_note?: string | null;
   symptom_levels?: SymptomLevels | null;
 }
 
 export interface DailyLogData extends DailyLogRequest {
   log_date: string;
-  mood_level: number;
-  cramps_severity: number;
-  is_exercise: boolean;
-  is_intercourse: boolean;
-  exercise_minutes: number;
-  sleep_duration_minutes: number;
-  sleep_quality: number;
-  is_late_night: boolean;
-  is_medication: boolean;
+  mood_level: number | null;
+  cramps_severity: number | null;
+  is_exercise: boolean | null;
+  is_intercourse: boolean | null;
+  exercise_minutes: number | null;
+  sleep_duration_minutes: number | null;
+  sleep_quality: number | null;
+  is_late_night: boolean | null;
+  is_medication: boolean | null;
   medication_note: string | null;
   symptom_levels: SymptomLevels;
+  recording_version?: number;
+  recorded_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface DailyLogResponse extends StatusResponse {
   ai_health_advice: string[];
+  advice_source?: string;
 }
 
 export interface DailyLogReadResponse extends StatusResponse {

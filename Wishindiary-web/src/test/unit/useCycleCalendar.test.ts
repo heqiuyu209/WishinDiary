@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, nextTick, type App } from 'vue';
 import type { AxiosResponse } from 'axios';
-import { useCycleCalendar } from '../../modules/calendar/composables/useCycleCalendar';
+import {
+  useCycleCalendar,
+  buildDailyLogPayload,
+  createDefaultDailyForm,
+} from '../../modules/calendar/composables/useCycleCalendar';
 import type {
   StatusResponse,
   StatsResponse,
@@ -220,7 +224,7 @@ describe('useCycleCalendar', () => {
       is_late_night: true,
       is_medication: true,
       medication_note: '布洛芬',
-      symptom_levels: { headache: 2, bloat: 0, breast_tenderness: 0, fatigue: 0 },
+      symptom_levels: { headache: 2, bloat: null, breast_tenderness: null, fatigue: null },
     });
 
     app.unmount();
@@ -283,12 +287,12 @@ describe('useCycleCalendar', () => {
     await nextTick();
 
     expect(calendar.dailyForm.medication_note).toBe('');
-    expect(calendar.dailyForm.is_medication).toBe(false);
+    expect(calendar.dailyForm.is_medication).toBeNull();
     expect(calendar.dailyForm.symptom_levels).toEqual({
-      headache: 0,
-      bloat: 0,
-      breast_tenderness: 0,
-      fatigue: 0,
+      headache: null,
+      bloat: null,
+      breast_tenderness: null,
+      fatigue: null,
     });
 
     app.unmount();
@@ -435,5 +439,17 @@ describe('useCycleCalendar', () => {
       new Date(2099, 0, 31).getTime(),
     );
     app.unmount();
+  });
+});
+
+describe('daily missing-value payload', () => {
+  it('默认未知、清空输入仍发送 null；明确未运动才保存零', () => {
+    const form = createDefaultDailyForm();
+    expect(buildDailyLogPayload(form, '2024-01-01').is_intercourse).toBeNull();
+    form.sleep_duration_minutes = '' as unknown as number;
+    expect(buildDailyLogPayload(form, '2024-01-01').sleep_duration_minutes).toBeNull();
+    form.is_exercise = false;
+    expect(buildDailyLogPayload(form, '2024-01-01').exercise_minutes).toBe(0);
+    expect(form.exercise_minutes).toBeNull();
   });
 });

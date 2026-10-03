@@ -21,9 +21,9 @@ class DailyLogSummary(BaseModel):
     """每日日志摘要（列表视图）。"""
 
     log_date: date
-    mood_level: int
-    cramps_severity: int
-    is_exercise: bool
+    mood_level: int | None
+    cramps_severity: int | None
+    is_exercise: bool | None
     exercise_type: str | None = None
     journal_text: str | None = None
 

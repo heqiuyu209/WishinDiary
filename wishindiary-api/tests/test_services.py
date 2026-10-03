@@ -214,5 +214,5 @@ class TestPredictionService:
 
         result = PredictionService().get_prediction(1)
         assert result["status"] == "insufficient_data"
-        assert result["message"] == "数据不足：请至少记录 4 个完整周期后再试"
+        assert "至少记录两次" in result["message"]
         assert "internal/path.py" not in result["message"]

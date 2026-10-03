@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 _EXPORT_TABLES = (
     ("cycles", "cycle_id"),
     ("daily_logs", "log_id"),
+    ("daily_log_revisions", "revision_id"),
     ("prediction_logs", "pred_id"),
 )
 

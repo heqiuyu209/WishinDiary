@@ -32,13 +32,15 @@ onMounted(async () => {
     if (cycleChartRef.value) {
       chartInstance = echarts.init(cycleChartRef.value);
       const dates = cycles.map((c) => c.start_date);
-      const lengths = cycles.map((c) => Number(c.cycle_length));
+      const lengths = cycles.map((c) => c.cycle_length ?? null);
 
       // y 轴范围随用户实际周期动态调整：上下留 4 天缓冲并按 5 的倍数取整
-      const validLengths = lengths.filter((n) => Number.isFinite(n) && n > 0);
+      const validLengths = lengths.filter(
+        (n): n is number => n != null && Number.isFinite(n) && n > 0,
+      );
       let yMin = 20;
       let yMax = 45;
-      if (validLengths.length >= 2) {
+      if (validLengths.length >= 1) {
         const dataMin = Math.min(...validLengths);
         const dataMax = Math.max(...validLengths);
         const paddedMin = Math.max(14, Math.floor((dataMin - 4) / 5) * 5);
@@ -144,12 +146,12 @@ onUnmounted(() => {
             <span
               class="text-[10px] px-2.5 py-1 bg-white border border-rose-100 text-rose-600 rounded-md font-bold shadow-sm"
             >
-              {{ moodTextMap[log.mood_level] || '平静' }}
+              {{ log.mood_level == null ? '心情未填' : moodTextMap[log.mood_level] }}
             </span>
           </div>
           <div class="flex flex-wrap gap-2 text-[10px] font-bold text-gray-600">
             <span class="bg-rose-50 text-rose-600 px-2 py-1 rounded-md">
-              {{ crampsTextMap[log.cramps_severity] || '无腹痛' }}
+              {{ log.cramps_severity == null ? '腹痛未填' : crampsTextMap[log.cramps_severity] }}
             </span>
             <span v-if="log.is_exercise" class="bg-indigo-50 text-indigo-600 px-2 py-1 rounded-md">
               🏃 {{ log.exercise_type || '已运动' }}
