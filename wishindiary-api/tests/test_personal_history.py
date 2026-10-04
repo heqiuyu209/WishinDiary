@@ -53,6 +53,22 @@ def test_sparse_gate_uses_fixed_fallback_without_fitting():
     assert gate.predict([case(100)], [34]).tolist() == [30]
 
 
+def test_history_variability_strata_can_learn_different_weights():
+    class Estimator:
+        def fit(self, cases):
+            return self
+        def predict(self, cases):
+            return np.full(len(cases), 40)
+    samples = [case(i, user=i % 4) for i in range(100)]
+    for i in range(80, 100):
+        samples[i] = case(i, user=i % 4, values=(20, 32, 26), actual=40)
+    gate = AdaptiveBlend().fit(samples, Estimator)
+    assert gate.weights['short/low/covered'] == 0
+    assert gate.weights['short/high/covered'] == 1
+    assert gate.summary['learned_groups'] == 2
+    assert gate.predict([case(200), case(201, values=(20, 32, 26))], [40, 40]).tolist() == [26, 40]
+
+
 def test_conditional_waiting_uses_survival_mass_and_no_future_outcome():
     model = ConditionalHistory().fit([case(i, user=i % 3, actual=26) for i in range(10)])
     target = case(100, values=(20, 20, 20, 20, 30, 30), actual=10000)

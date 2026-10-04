@@ -80,6 +80,11 @@ def build_tracking_cases(data, as_of):
                 continue
             reviews = [row for row in user_tracking if calendar_date(row['anchor_start_date']) == current['start_date']
                        and row['kind'] != 'no_onset']
+            prior = [row for row in reviews if utc_instant(row['known_at']) < issued]
+            known_review = max(prior, key=lambda row: (utc_instant(row['known_at']), int(row['event_id']))) if prior else None
+            if known_review and known_review['kind'] in ('missed_tracking', 'true_long_interval'):
+                counts['outcome_already_known'] += 1
+                continue
             review = max(reviews, key=lambda row: (utc_instant(row['known_at']), int(row['event_id']))) if reviews else None
             label = None
             label_known = None

@@ -52,6 +52,23 @@ def test_future_revisions_do_not_change_issuance_features_or_past_fit_labels():
     assert old_reviews == [(c.key, c.label) for c in build_tracking_cases(changed, cutoff)[0]]
 
 
+def test_later_review_change_cannot_turn_an_already_known_outcome_into_a_future_target():
+    data = synthetic_event_data(1, 8)
+    target = build_tracking_cases(data, END)[0][0]
+    cycle = data['cycle_revisions'][0]
+    prior = {'event_id': 9999, 'user_id': 1, 'cycle_id': cycle['cycle_id'],
+        'anchor_start_date': cycle['start_date'], 'kind': 'true_long_interval', 'as_of_date': target.issued_at.date(),
+        'known_at': target.issued_at - timedelta(microseconds=1), 'timezone_name': 'Asia/Shanghai'}
+    future = {**prior, 'event_id': 10001, 'kind': 'missed_tracking', 'known_at': target.issued_at + timedelta(days=1)}
+    data['cycle_tracking_events'].extend([prior, future])
+    cases, counts = build_tracking_cases(data, END)
+    assert target.key not in [c.key for c in cases] and counts['outcome_already_known'] == 1
+    # An explicitly restored unknown state at issuance remains an unknown target.
+    data['cycle_tracking_events'].append({**prior, 'event_id': 10000, 'kind': 'unknown'})
+    case = next(c for c in build_tracking_cases(data, END)[0] if c.key == target.key)
+    assert case.label == 1
+
+
 def test_tracking_probabilities_pair_constant_prior_with_no_held_user_leak():
     data = synthetic_event_data(12, 22, tracking_scenarios=True)
     result = run_tracking_evaluation(data, **ARGS)
