@@ -1,4 +1,5 @@
 import copy
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -6,7 +7,7 @@ import pytest
 from app.ml.paired_uncertainty import paired_brier_interval
 from app.ml.tracking_probability import build_tracking_cases, run_tracking_evaluation
 from app.ml.tracking_report import sanitize_tracking_report
-from scripts.lifestyle_backtest import synthetic_event_data
+from scripts.lifestyle_backtest import evaluate_data, synthetic_event_data
 
 END = '2024-01-01T00:00:00Z'
 ARGS = {'calibration_cutoff': '2022-10-01T00:00:00Z', 'test_cutoff': '2023-04-01T00:00:00Z',
@@ -111,6 +112,33 @@ def test_unreviewed_data_and_sparse_classes_do_not_become_a_probability_model():
     result = run_tracking_evaluation(synthetic_event_data(3, 22), **ARGS)
     assert not result['available']
     assert all(p['scores']['samples'] == 0 for p in result['protocols'].values())
+
+
+def test_closed_gap_research_can_run_when_all_cycle_forecasts_are_outside_scope(monkeypatch, tmp_path):
+    from app.core.config import settings
+    from app.ml.lifestyle_report import read_lifestyle_report
+    data = synthetic_event_data(12, 22)
+    data['cycle_revisions'] = [row for row in data['cycle_revisions'] if (row['cycle_id'] % 1000) % 2 == 0]
+    data['cycle_tracking_events'] = []
+    for user in range(1, 13):
+        rows = [row for row in data['cycle_revisions'] if row['user_id'] == user and row['end_date'] is None]
+        for index, (current, following) in enumerate(zip(rows, rows[1:])):
+            data['cycle_tracking_events'].append({'event_id': len(data['cycle_tracking_events']) + 1,
+                'user_id': user, 'cycle_id': current['cycle_id'], 'anchor_start_date': current['start_date'],
+                'kind': 'missed_tracking' if index % 2 else 'true_long_interval',
+                'as_of_date': following['start_date'] + timedelta(days=1), 'timezone_name': 'Asia/Shanghai',
+                'known_at': following['known_at'] + timedelta(days=1)})
+    report = evaluate_data(data, 'synthetic', **ARGS)
+    assert report['evaluation']['eligible_cases'] == 0
+    assert report['evaluation']['tracking_probability']['available']
+    assert all(not stage['protocols']['unseen_users']['metrics'] for stage in report['evaluation']['stages'].values())
+    # Individual rows and unexpected fields must not pass through the admin reader.
+    report['evaluation']['tracking_probability']['private_rows'] = [{'user_id': 12345, 'case_key': 'sensitive'}]
+    monkeypatch.setattr(settings, 'MODEL_PATH', tmp_path / 'model.skops')
+    (tmp_path / 'lifestyle_evaluation_report.json').write_text(json.dumps(report, default=str), encoding='utf-8')
+    sanitized = read_lifestyle_report()
+    assert sanitized['available'] and sanitized['tracking_probability']['available']
+    assert 'sensitive' not in json.dumps(sanitized) and 'user_id' not in json.dumps(sanitized)
 
 
 def test_brier_interval_is_paired_squared_probability_loss():

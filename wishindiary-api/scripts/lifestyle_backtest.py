@@ -84,6 +84,9 @@ def synthetic_event_data(n_users=6, n_cycles=22, *, tracking_scenarios=False):
 
 def evaluate_data(data, source, *, calibration_cutoff, test_cutoff, data_as_of=None,
                   authorization=None, bootstrap_replicates=1000):
+    end = data_as_of or datetime.now(timezone.utc)
+    tracking = run_tracking_evaluation(data, calibration_cutoff=calibration_cutoff, test_cutoff=test_cutoff,
+        data_as_of=end, bootstrap_replicates=bootstrap_replicates)
     resets = {int(key): value for key, value in data.get('resets', {}).items() if value}
     report = {'schema_version': 1, 'metadata': _collect_env_metadata(),
         'pipeline_sha256': lifestyle_pipeline_fingerprint(),
@@ -93,7 +96,7 @@ def evaluate_data(data, source, *, calibration_cutoff, test_cutoff, data_as_of=N
                     'fingerprint': fingerprint(data)},
         'evaluation': run_lifestyle_ablation(data['cycle_revisions'], data['daily_log_revisions'],
             data.get('cycle_tracking_events', []), resets, calibration_cutoff=calibration_cutoff,
-            test_cutoff=test_cutoff, data_as_of=data_as_of, bootstrap_replicates=bootstrap_replicates,
+            test_cutoff=test_cutoff, data_as_of=end, bootstrap_replicates=bootstrap_replicates, allow_empty=tracking['available'],
             enrollment=data.get('enrollment'), background_events=data.get('research_background_revisions', [])),
         'notes': ['Research candidate only; no weights are published and no online prediction changes.',
                   'All feature groups and shrinkage modes share each protocol/stage test cohort.',
@@ -103,9 +106,7 @@ def evaluate_data(data, source, *, calibration_cutoff, test_cutoff, data_as_of=N
                   'Intervals use a separate chronological calibration segment; 90% is a target, not a clinical or IID coverage guarantee.',
                   'Paired MAE percentile intervals cluster whole users, conditional on fitted models. Exploratory comparisons are unadjusted.',
                   'Synthetic effects demonstrate a workflow, not medical causality or real accuracy.']}
-    report['evaluation']['tracking_probability'] = run_tracking_evaluation(data,
-        calibration_cutoff=calibration_cutoff, test_cutoff=test_cutoff,
-        data_as_of=report['evaluation']['data_as_of'], bootstrap_replicates=bootstrap_replicates)
+    report['evaluation']['tracking_probability'] = tracking
     report['notes'].extend([
         'Adaptive weights use a nested chronological segment of training; calibration remains for interval radii.',
         'Conditional history waiting uses timely no-onset confirmations, never absence of logging.',

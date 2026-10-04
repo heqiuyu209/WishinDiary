@@ -210,7 +210,7 @@ def _scores(rows):
 
 def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), resets=None, *, calibration_cutoff,
                            test_cutoff, n_splits=3, coverage=0.9, data_as_of=None, enrollment=None, background_events=(),
-                           bootstrap_replicates=1000, seed=42):
+                           bootstrap_replicates=1000, seed=42, allow_empty=False):
     calibration_cutoff, test_cutoff = utc_instant(calibration_cutoff), utc_instant(test_cutoff)
     if calibration_cutoff >= test_cutoff or not 2 <= n_splits <= 10 or not 0 < coverage < 1:
         raise ValueError('Invalid research cutoffs, folds or coverage')
@@ -223,7 +223,7 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
     # edits or missed-tracking annotations must not remove/rewrite old fits.
     train_snapshot, _ = build_lifestyle_cases(cycle_events, daily_events, tracking_events, resets, dataset_as_of=calibration_cutoff, **options)
     calibration_snapshot, _ = build_lifestyle_cases(cycle_events, daily_events, tracking_events, resets, dataset_as_of=test_cutoff, **options)
-    if not cases:
+    if not cases and not allow_empty:
         raise ValueError('No timely as-recorded cases with sufficient history; backfilled dates cannot reconstruct past forecasts')
     probability = Fraction(str(coverage))
     output = {}
@@ -257,7 +257,7 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
                 fit_summary = {'training_samples': len(prefix), 'calibration_samples': len(cal),
                     'training_labels_available_through': max(case.label_known_at for case in prefix).isoformat(),
                     'calibration_labels_available_through': max((case.label_known_at for case in cal), default=None).isoformat() if cal else None,
-                    'held_out_user_overlap': len({c.user_id for c in prefix} & {c.user_id for c in test}) if name == 'unseen_users' else None,
+                    'held_out_user_overlap': len({c.user_id for c in (*prefix, *cal)} & {c.user_id for c in test}) if name == 'unseen_users' else None,
                     'adaptive_blend': {}}
                 fitted.append(fit_summary)
                 def save(method, points, calibration_points):
