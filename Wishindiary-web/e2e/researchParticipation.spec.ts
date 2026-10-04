@@ -27,7 +27,9 @@ test('研究授权独立于邮箱、背景区分未知与否定、撤回保留�
   });
   await page.reload();
   await expect(research.getByLabel('目前是否妊娠')).toHaveValue('false');
-  await expect(research.getByLabel('是否已被医生诊断为 PCOS')).toHaveValue('');
+  await expect(research.getByLabel('是否已被医生诊断为 PCOS').locator('option:checked')).toHaveText(
+    '未填写 / 不确定',
+  );
   await research.getByRole('button', { name: '撤回研究授权' }).click();
   await expect(research).toContainText('未参加研究');
   const origin = new URL(response.url()).origin;

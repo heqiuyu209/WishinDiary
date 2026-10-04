@@ -31,6 +31,12 @@ const isPrimary = (method: string) => {
     primary.method === method
   );
 };
+const primaryScore = computed(() => {
+  const primary = props.evaluation?.primary_comparison;
+  return primary && isPrimary(primary.method) && primary.method.endsWith(`_${mode.value}`)
+    ? selected.value?.metrics[primary.method]
+    : undefined;
+});
 const coverageRows = computed(
   () =>
     [
@@ -114,6 +120,17 @@ const coverageRows = computed(
       </p>
       <p v-if="stage !== '0'" class="text-xs text-indigo-700">
         只评估在该日及时确认尚未开始的用户。未打卡不等于尚未开始；不同预测时点的人群不同，不能直接比较误差大小。
+      </p>
+      <p
+        v-if="primaryScore"
+        class="rounded-xl bg-rose-50 p-3 text-xs leading-relaxed text-rose-800"
+      >
+        固定主对照：ΔMAE {{ metric(primaryScore.delta_mae_vs_base, ' 天') }}；配对 95% 区间
+        {{ pairedInterval(primaryScore) }}。测试用户
+        {{ primaryScore.delta_mae_ci95?.n_users ?? '未知' }} 位。
+      </p>
+      <p v-if="selected?.samples" class="text-xs text-gray-500 sm:hidden">
+        横向滑动表格查看区间与覆盖率。
       </p>
       <p v-if="!selected?.samples" class="text-sm text-gray-500">
         该时点或人群暂无可用共同测试样本。
