@@ -111,6 +111,7 @@ export interface ResearchSummary extends StatusResponse {
   lifestyle_evaluation?: LifestyleEvaluation;
   lifestyle_coverage?: LifestyleCoverage;
   research_quality?: ResearchQuality;
+  research_experiments?: ResearchExperiment[];
   recommendations: string[];
 }
 
@@ -386,6 +387,14 @@ export interface LifestyleScore {
   interval_unavailable_samples?: number;
   coverage_pct?: number;
   mean_width_days?: number;
+  delta_mae_ci95?: {
+    available: boolean;
+    n_users: number;
+    samples: number;
+    min_users: number;
+    lower?: number;
+    upper?: number;
+  };
 }
 export interface LifestyleProtocol {
   samples: number;
@@ -425,7 +434,22 @@ export interface LifestyleEvaluation {
   target_coverage_pct?: number;
   eligible_cases?: number;
   exclusions?: Record<string, number>;
+  primary_comparison?: { stage: string; protocol: string; method: string; baseline: string } | null;
   stages?: Record<string, { target: string; protocols: Record<string, LifestyleProtocol> }>;
+}
+export interface ResearchExperiment {
+  run_id: string;
+  status: 'registered' | 'frozen' | 'complete' | 'authorization_changed' | 'invalid';
+  registered_at?: string;
+  kind?: 'prospective_plan' | 'retrospective_exploration';
+  calibration_cutoff?: string;
+  test_cutoff?: string;
+  data_as_of?: string;
+  protocol_sha256?: string;
+  pipeline_matches?: boolean;
+  source?: string;
+  n_users?: number;
+  eligible_cases?: number;
 }
 export interface LifestyleCoverage {
   total: number;
