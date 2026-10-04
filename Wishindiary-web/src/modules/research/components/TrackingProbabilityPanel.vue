@@ -56,6 +56,7 @@ const metric = (value?: number | null, percent = false) =>
         {{ calibrated }}/{{ fits.length }}
         个可用折完成独立时间段概率校准；其余折为未经独立校准的模型分数。
       </p>
+      <p class="text-gray-600 sm:hidden">横向滑动表格查看核对频率。</p>
       <div class="overflow-x-auto">
         <table class="w-full min-w-[430px] text-left">
           <caption class="pb-2 text-left text-gray-600">
