@@ -19,6 +19,7 @@ from app.features.lifestyle_features import (
 )
 from app.ml.prediction_scope import history_is_supported
 from app.features.research_background import background_as_of, background_group
+from app.ml.paired_uncertainty import PRIMARY_COMPARISON, paired_mae_interval
 
 STAGES = (0, 7, 14, 21)
 PARAMETERS = {'n_estimators': 80, 'max_depth': 8, 'random_state': 42}
@@ -204,7 +205,8 @@ def _scores(rows):
 
 
 def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), resets=None, *, calibration_cutoff,
-                           test_cutoff, n_splits=3, coverage=0.9, data_as_of=None, enrollment=None, background_events=()):
+                           test_cutoff, n_splits=3, coverage=0.9, data_as_of=None, enrollment=None, background_events=(),
+                           bootstrap_replicates=1000, seed=42):
     calibration_cutoff, test_cutoff = utc_instant(calibration_cutoff), utc_instant(test_cutoff)
     if calibration_cutoff >= test_cutoff or not 2 <= n_splits <= 10 or not 0 < coverage < 1:
         raise ValueError('Invalid research cutoffs, folds or coverage')
@@ -258,6 +260,7 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
                     radius = errors[rank - 1] if rank <= len(errors) else None
                     rows = records.setdefault(method, [])
                     rows.extend({'point': float(point), 'actual': case.actual_remaining, 'radius': radius, 'background': case.background_group,
+                                 'user_id': case.user_id, 'case_key': case.key,
                                  'coverage': np.mean([case.features[f'{group}_coverage'] for group in ('sleep', 'stress', 'exercise')])}
                                 for point, case in zip(points, test))
                 for group in FEATURE_GROUPS:
@@ -283,6 +286,9 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
                 if method.endswith(('_direct', '_shrinkage')):
                     baseline = 'base_' + method.rsplit('_', 1)[1]
                     metric['delta_mae_vs_base'] = round(metric['mae'] - metrics[baseline]['mae'], 4)
+                    if method != baseline:
+                        metric['delta_mae_ci95'] = paired_mae_interval(records[method], records[baseline],
+                            replicates=bootstrap_replicates, seed=seed)
             protocols[name] = {'samples': len(cohort), 'candidate_samples': len(existing) if name == 'existing_users' else len(targets),
                 'excluded_unseen_cases': len(targets) - len(existing) if name == 'existing_users' else 0,
                 'skipped_empty_folds': skipped, 'fits': fitted,
@@ -297,4 +303,7 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
     return {'feature_version': LIFESTYLE_FEATURE_VERSION, 'data_as_of': data_as_of.isoformat(), 'calibration_cutoff': calibration_cutoff.isoformat(),
             'test_cutoff': test_cutoff.isoformat(), 'target_coverage_pct': coverage * 100,
             'parameters': {'rf': PARAMETERS, 'window_days': 28, 'shrinkage_k': 4, 'stages': list(STAGES)},
+            'primary_comparison': PRIMARY_COMPARISON,
+            'uncertainty': {'method': 'paired_user_cluster_percentile', 'replicates': bootstrap_replicates, 'seed': seed,
+                            'conditional_on_fitted_models': True, 'exploratory_comparisons_unadjusted': True},
             'eligible_cases': len(cases), 'exclusions': exclusions, 'stages': output}

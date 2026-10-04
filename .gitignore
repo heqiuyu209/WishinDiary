@@ -62,6 +62,8 @@ Wishindiary-web/dist-ssr/
 *.skops
 wishindiary-api/ml/model_evaluation_report.*
 wishindiary-api/ml/lifestyle_evaluation_report.*
+**/research_experiments/
+**/dataset_snapshot.json
 wishindiary-api/ml/monitoring_logs/
 data/
 exports/

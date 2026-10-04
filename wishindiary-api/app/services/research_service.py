@@ -10,6 +10,7 @@ from app.core.errors import AppError
 from app.services.forecast_report_service import read_forecast_report
 from app.ml.lifestyle_report import read_lifestyle_report
 from app.services.research_quality_service import research_quality
+from app.ml.research_experiments import list_experiments
 
 logger = logging.getLogger(__name__)
 
@@ -180,5 +181,6 @@ class ResearchService:
             "lifestyle_evaluation": lifestyle,
             "lifestyle_coverage": lifestyle_coverage,
             "research_quality": authorized_quality,
+            "research_experiments": list_experiments(),
             "recommendations": recommendations,
         }

@@ -8,6 +8,7 @@ from pathlib import Path
 from app.core.config import settings
 from app.features.lifestyle_features import FEATURE_GROUPS, LIFESTYLE_FEATURE_VERSION, utc_instant
 from app.services.research_dataset_service import authorization_is_current
+from app.ml.paired_uncertainty import MIN_USERS, PRIMARY_COMPARISON
 
 logger = logging.getLogger(__name__)
 METHODS = tuple(group + suffix for group in FEATURE_GROUPS for suffix in ('_direct', '_shrinkage')) + ('mean3', 'median3', 'ewma')
@@ -17,7 +18,8 @@ def lifestyle_pipeline_fingerprint():
     root = Path(__file__).resolve().parents[1]
     paths = ('ml/lifestyle_evaluation.py', 'features/lifestyle_features.py',
              'features/cycle_feature_engineering.py', 'ml/contract.py', 'ml/prediction_scope.py',
-             'features/research_background.py', 'core/research_policy.py')
+             'features/research_background.py', 'core/research_policy.py', 'ml/paired_uncertainty.py',
+             'services/research_dataset_service.py', '../scripts/lifestyle_backtest.py', 'ml/research_experiments.py')
     digest = hashlib.sha256()
     for path in paths:
         digest.update(path.encode() + b'\0' + (root / path).read_bytes() + b'\0')
@@ -54,6 +56,22 @@ def score(raw):
         raise ValueError('Invalid interval denominator')
     if result['interval_samples'] and not {'coverage_pct', 'mean_width_days'} <= result.keys():
         raise ValueError('Missing interval scores')
+    if 'delta_mae_ci95' in raw:
+        ci = raw['delta_mae_ci95']
+        n_users = count(ci['n_users'])
+        if ci['samples'] != result['samples'] or n_users > result['samples'] or ci['min_users'] != MIN_USERS or ci['level_pct'] != 95:
+            raise ValueError('Invalid paired uncertainty denominator')
+        if type(ci['replicates']) is not int or not 200 <= ci['replicates'] <= 10_000 or type(ci['seed']) is not int or not 0 <= ci['seed'] < 2**32:
+            raise ValueError('Invalid paired uncertainty parameters')
+        clean = {'available': ci['available'] is True, 'n_users': n_users, 'samples': result['samples'], 'min_users': MIN_USERS}
+        if clean['available']:
+            lower, upper = ci['lower'], ci['upper']
+            if n_users < MIN_USERS or any(type(v) not in (float, int) or not math.isfinite(v) or abs(v) > 10000 for v in (lower, upper)) or lower > upper:
+                raise ValueError('Invalid paired uncertainty range')
+            clean.update(lower=lower, upper=upper)
+        elif n_users >= MIN_USERS or ci['reason'] != 'too_few_users':
+            raise ValueError('Invalid unavailable uncertainty')
+        result['delta_mae_ci95'] = clean
     return result
 
 
@@ -130,7 +148,9 @@ def read_lifestyle_report():
             'target_coverage_pct': evaluation['target_coverage_pct'], 'eligible_cases': count(evaluation['eligible_cases']),
             'exclusions': {key: count(value) for key, value in evaluation['exclusions'].items() if key in (
                 'candidate_intervals', 'late_or_unknown_issuance', 'edited_anchor', 'purged_history', 'unsupported_history',
-                'missing_history', 'confirmed_missed', 'dynamic_without_timely_confirmation', 'before_enrollment', 'ineligible_age')}, 'stages': stages}
+                'missing_history', 'confirmed_missed', 'dynamic_without_timely_confirmation', 'before_enrollment', 'ineligible_age')},
+            'primary_comparison': PRIMARY_COMPARISON if evaluation.get('primary_comparison') == PRIMARY_COMPARISON else None,
+            'stages': stages}
     except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
         logger.warning('Lifestyle report invalid; regenerate the aggregate report')
         return {'available': False, 'message': '生活因素报告无效，请重新生成'}

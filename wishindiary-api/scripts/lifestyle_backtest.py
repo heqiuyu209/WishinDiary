@@ -62,6 +62,34 @@ def synthetic_event_data(n_users=6, n_cycles=22):
     return {'cycle_revisions': cycles, 'daily_log_revisions': daily, 'cycle_tracking_events': tracking, 'resets': {}}
 
 
+def evaluate_data(data, source, *, calibration_cutoff, test_cutoff, data_as_of=None,
+                  authorization=None, bootstrap_replicates=1000):
+    resets = {int(key): value for key, value in data.get('resets', {}).items() if value}
+    report = {'schema_version': 1, 'metadata': _collect_env_metadata(),
+        'pipeline_sha256': lifestyle_pipeline_fingerprint(),
+        'dataset': {'source': source, 'cycle_events': len(data['cycle_revisions']),
+                    'daily_events': len(data['daily_log_revisions']),
+                    'n_users': len({row['user_id'] for row in data['cycle_revisions']}),
+                    'fingerprint': fingerprint(data)},
+        'evaluation': run_lifestyle_ablation(data['cycle_revisions'], data['daily_log_revisions'],
+            data.get('cycle_tracking_events', []), resets, calibration_cutoff=calibration_cutoff,
+            test_cutoff=test_cutoff, data_as_of=data_as_of, bootstrap_replicates=bootstrap_replicates,
+            enrollment=data.get('enrollment'), background_events=data.get('research_background_revisions', [])),
+        'notes': ['Research candidate only; no weights are published and no online prediction changes.',
+                  'All feature groups and shrinkage modes share each protocol/stage test cohort.',
+                  'Cycle and daily events must be known before forecast issuance. Legacy/backfilled forecasts are not reconstructed.',
+                  'Dynamic stages require a timely explicit no-onset confirmation; absence of a log is not confirmation.',
+                  'Median imputation is fitted on training only; missingness and calendar-day coverage remain explicit.',
+                  'Intervals use a separate chronological calibration segment; 90% is a target, not a clinical or IID coverage guarantee.',
+                  'Paired MAE percentile intervals cluster whole users, conditional on fitted models. Exploratory comparisons are unadjusted.',
+                  'Synthetic effects demonstrate a workflow, not medical causality or real accuracy.']}
+    if authorization:
+        if not authorization_is_current(authorization):
+            raise ValueError('Consent changed during evaluation; discard the run and create a new snapshot')
+        report['authorization'] = authorization
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sources = parser.add_mutually_exclusive_group(required=True)
@@ -92,28 +120,8 @@ def main():
     for value in (args.calibration_cutoff, args.test_cutoff, *([args.data_as_of] if args.data_as_of else [])):
         if datetime.fromisoformat(value.replace('Z', '+00:00')).tzinfo is None:
             parser.error('Cutoffs require explicit timezone offsets')
-    resets = {int(key): value for key, value in data.get('resets', {}).items() if value}
-    report = {'schema_version': 1, 'metadata': _collect_env_metadata(),
-        'pipeline_sha256': lifestyle_pipeline_fingerprint(),
-        'dataset': {'source': source, 'cycle_events': len(data['cycle_revisions']),
-                    'daily_events': len(data['daily_log_revisions']),
-                    'n_users': len({row['user_id'] for row in data['cycle_revisions']}),
-                    'fingerprint': fingerprint(data)},
-        'evaluation': run_lifestyle_ablation(data['cycle_revisions'], data['daily_log_revisions'],
-            data.get('cycle_tracking_events', []), resets, calibration_cutoff=args.calibration_cutoff,
-            test_cutoff=args.test_cutoff, data_as_of=args.data_as_of,
-            enrollment=data.get('enrollment'), background_events=data.get('research_background_revisions', [])),
-        'notes': ['Research candidate only; no weights are published and no online prediction changes.',
-                  'All feature groups and shrinkage modes share each protocol/stage test cohort.',
-                  'Cycle and daily events must be known before forecast issuance. Legacy/backfilled forecasts are not reconstructed.',
-                  'Dynamic stages require a timely explicit no-onset confirmation; absence of a log is not confirmation.',
-                  'Median imputation is fitted on training only; missingness and calendar-day coverage remain explicit.',
-                  'Intervals use a separate chronological calibration segment; 90% is a target, not a clinical or IID coverage guarantee.',
-                  'Synthetic effects demonstrate a workflow, not medical causality or real accuracy.']}
-    if authorization:
-        if not authorization_is_current(authorization):
-            raise ValueError('Consent changed during evaluation; discard the run and create a new snapshot')
-        report['authorization'] = authorization
+    report = evaluate_data(data, source, calibration_cutoff=args.calibration_cutoff, test_cutoff=args.test_cutoff,
+                           data_as_of=args.data_as_of, authorization=authorization)
     directory = args.output_dir or settings.model_abs_path.parent
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / 'lifestyle_evaluation_report.json'

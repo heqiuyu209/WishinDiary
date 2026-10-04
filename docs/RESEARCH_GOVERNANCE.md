@@ -21,6 +21,36 @@
 
 管理端的授权队列统计独立于全站运营计数。首次录入当天或次日称为及时记录，之后称为补录；旧版首次录入时刻未知单独计数。最近 28 个已结束日历日的分母从本次加入日开始，不包含今天；无记录的天也计入。字段覆盖保留未知与明确零的区别。在线汇总有数量上限，超过上限要求有界离线统计。
 
+## 配对误差与不确定性
+
+相对历史模型的 ΔMAE 使用同一批预测事件和真实结果。95% 百分位区间以用户为重采样单位，每次保留该用户所有周期，默认种子 42、重复 1000 次；避免把同一人的多次记录当成独立受试者。目标仍是周期加权的平均绝对误差差值，区间条件于本次已拟合模型，不包含重新训练的全部不确定性。
+
+少于 10 位测试用户时不计算该区间，明确返回不可用；10 是程序门槛，不是足够样本或临床有效性的证明。固定主要比较为开始日、模型未见用户、全部生活因素直接输出相对基础历史模型。其他时点、模式和组别比较属于探索，没有多重比较校正；历史数据上注册的主要比较仍标记为回顾性探索。负差值表示当前测试误差较少，不能据此证明因果关系或上线效果。
+
+## 固定实验、冻结与重放
+
+管理端只读显示最近 20 个实验登记。实验运行由部署者通过 CLI 完成，没有网页训练接口或任意文件路径接口。登记时固定时间截点、主要比较、随机种子、RF 参数、重采样次数、代码摘要和依赖版本。方案、私有事件快照、汇总报告与清单保存在 `MODEL_PATH` 同目录的 `research_experiments/<实验ID>/`，该目录被 Git 忽略；快照权限为 0600。方案签名和文件摘要用于检测修改，不替代外部研究注册或伦理审核。
+
+合成流程示例（历史时间段会标记为回顾性探索）：
+
+```bash
+cd wishindiary-api
+python scripts/research_experiments.py register \
+  --calibration-cutoff 2022-10-01T00:00:00Z \
+  --test-cutoff 2023-04-01T00:00:00Z \
+  --data-as-of 2024-01-01T00:00:00Z
+# 将下方值替换为注册命令输出的 32 位 ID
+WISH_EXPERIMENT_ID="注册命令输出的ID"
+python scripts/research_experiments.py freeze "$WISH_EXPERIMENT_ID" --synthetic-only
+python scripts/research_experiments.py run "$WISH_EXPERIMENT_ID" --publish-report
+python scripts/research_experiments.py replay "$WISH_EXPERIMENT_ID"
+python scripts/research_experiments.py list
+```
+
+真实研究先登记独立未来测试截点，等待实际观察截点到达，再使用 `freeze <实验ID> --database --acknowledge-authorized-data`。冻结只包含当前自愿参加的用户，个人导出不能替代此快照。`run` 和 `replay` 使用相同快照、代码及依赖；重放核对完整评估摘要，不覆盖旧实验。方案或环境变化需新建实验。`--publish-report` 只更新管理端读取的汇总报告，不发布权重或更改在线预测。
+
+本地在测试截点之前登记仅表示存在前瞻方案，不证明数据未被看过，也不替代独立验证。合成实验默认 12 位用户以演示配对区间，合成信号不代表真实效果。真实数据授权变化会阻止旧报告展示和重放。
+
 ## 部署
 
 执行 `alembic upgrade head`，新增 `0009_research_participation`。迁移不自动替用户授权；存在授权或背景记录时拒绝降级删除这些表。新增接口使用现有会话与 CSRF 保护。
