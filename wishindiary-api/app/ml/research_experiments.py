@@ -13,6 +13,7 @@ from app.ml.lifestyle_report import lifestyle_pipeline_fingerprint
 from app.ml.paired_uncertainty import PRIMARY_COMPARISON
 from app.ml.lifestyle_evaluation import PARAMETERS
 from app.ml.personal_history import CONDITIONAL_PARAMETERS, PERSONALIZATION_PARAMETERS
+from app.ml.tracking_probability import TRACKING_PARAMETERS, TRACKING_VERSION
 from app.services.research_dataset_service import (
     authorization_is_current, fingerprint, read_authorized_database, report_authorization, validate_snapshot,
 )
@@ -66,7 +67,9 @@ def register_protocol(*, calibration_cutoff, test_cutoff, data_as_of, bootstrap_
         'rf_parameters': dict(PARAMETERS),
         'personalization_parameters': PERSONALIZATION_PARAMETERS,
         'conditional_history_parameters': CONDITIONAL_PARAMETERS,
-        'synthetic_users': synthetic_users, 'synthetic_cycles': 22, 'environment': _collect_env_metadata()}
+        'tracking_version': TRACKING_VERSION, 'tracking_parameters': TRACKING_PARAMETERS,
+        'synthetic_users': synthetic_users, 'synthetic_cycles': 22, 'synthetic_tracking_scenarios': True,
+        'environment': _collect_env_metadata()}
     path = run_directory(run_id)
     if path.parent.exists() and sum(1 for _ in path.parent.iterdir()) >= 1000:
         raise ValueError('Local experiment registry is full; archive completed runs privately')
@@ -96,6 +99,8 @@ def read_protocol(run_id, *, require_environment=False):
             raise ValueError('Personalization parameters changed; register a new plan')
         if protocol.get('conditional_history_parameters') != CONDITIONAL_PARAMETERS:
             raise ValueError('Conditional history parameters changed; register a new plan')
+        if protocol.get('tracking_version') != TRACKING_VERSION or protocol.get('tracking_parameters') != TRACKING_PARAMETERS:
+            raise ValueError('Tracking probability parameters changed; register a new plan')
     return protocol, digest
 
 
@@ -105,7 +110,8 @@ def freeze_dataset(run_id, *, synthetic_only=False):
     if utc_instant(protocol['data_as_of']) > datetime.now(timezone.utc):
         raise ValueError('Planned observation cutoff has not been reached')
     if synthetic_only:
-        data = synthetic_event_data(protocol['synthetic_users'], protocol['synthetic_cycles'])
+        data = synthetic_event_data(protocol['synthetic_users'], protocol['synthetic_cycles'],
+                                    tracking_scenarios=protocol.get('synthetic_tracking_scenarios', False))
         snapshot = {'schema_version': 1, 'source': 'synthetic', 'data': data, 'dataset_sha256': fingerprint(data)}
     else:
         snapshot = {**read_authorized_database(), 'source': 'authorized_database'}
@@ -119,7 +125,8 @@ def read_dataset(run_id, protocol):
     if fingerprint(snapshot['data']) != snapshot['dataset_sha256']:
         raise ValueError('Frozen dataset changed')
     if snapshot['source'] == 'synthetic':
-        expected = synthetic_event_data(protocol['synthetic_users'], protocol['synthetic_cycles'])
+        expected = synthetic_event_data(protocol['synthetic_users'], protocol['synthetic_cycles'],
+                                        tracking_scenarios=protocol.get('synthetic_tracking_scenarios', False))
         if snapshot['dataset_sha256'] != fingerprint(expected):
             raise ValueError('Synthetic snapshot does not match the registered fixture')
         return snapshot['data'], 'synthetic', None

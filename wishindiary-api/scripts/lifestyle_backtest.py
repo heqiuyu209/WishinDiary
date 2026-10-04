@@ -10,13 +10,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.core.config import settings
 from app.ml.lifestyle_evaluation import run_lifestyle_ablation
 from app.ml.lifestyle_report import lifestyle_pipeline_fingerprint
+from app.ml.tracking_probability import run_tracking_evaluation
 from app.services.research_dataset_service import (
     authorization_is_current, fingerprint, read_authorized_database, report_authorization, validate_snapshot,
 )
 from scripts.train import _collect_env_metadata
 
 
-def synthetic_event_data(n_users=6, n_cycles=22):
+def synthetic_event_data(n_users=6, n_cycles=22, *, tracking_scenarios=False):
     cycles, daily, tracking = [], [], []
     revision_id = 0
     for user_id in range(1, n_users + 1):
@@ -35,6 +36,9 @@ def synthetic_event_data(n_users=6, n_cycles=22):
                 break
             stress = ((anchor.toordinal() // 7) + user_id) % 4
             length = 25 + user_id % 6 + stress + (index % 3 - 1)
+            if tracking_scenarios and index % 8 == 3:
+                # A genuinely long synthetic interval, distinct from omitted tracking.
+                length += 25
             for stage in (7, 14, 21):
                 if stage < length:
                     observed = anchor + timedelta(days=stage)
@@ -59,6 +63,22 @@ def synthetic_event_data(n_users=6, n_cycles=22):
                     'known_at': datetime.combine(day + timedelta(days=1), time(0), timezone.utc),
                     'source': 'user_recorded', 'timezone_name': 'Asia/Shanghai', 'payload': payload})
             day += timedelta(days=1)
+    if tracking_scenarios:
+        omitted = {row['cycle_id'] for row in cycles
+                   if ((row['cycle_id'] % 1000) + row['user_id'] % 3) % 7 == 5}
+        cycles = [row for row in cycles if row['cycle_id'] not in omitted]
+        tracking = [row for row in tracking if row['cycle_id'] not in omitted]
+        for user_id in range(1, n_users + 1):
+            rows = [row for row in cycles if row['user_id'] == user_id and row['end_date'] is None]
+            for index, (current, following) in enumerate(zip(rows, rows[1:])):
+                kind = 'missed_tracking' if following['cycle_id'] - current['cycle_id'] > 1 else 'true_long_interval'
+                if index % 5 == 4 and kind != 'missed_tracking':
+                    continue  # Deliberately unreviewed, never a negative label.
+                tracking.append({'event_id': max((row['event_id'] for row in tracking), default=0) + 1,
+                    'cycle_id': current['cycle_id'], 'user_id': user_id, 'anchor_start_date': current['start_date'],
+                    'kind': kind, 'as_of_date': following['start_date'] + timedelta(days=1),
+                    'known_at': datetime.combine(following['start_date'] + timedelta(days=1), time(9), timezone.utc),
+                    'timezone_name': 'Asia/Shanghai'})
     return {'cycle_revisions': cycles, 'daily_log_revisions': daily, 'cycle_tracking_events': tracking, 'resets': {}}
 
 
@@ -83,6 +103,14 @@ def evaluate_data(data, source, *, calibration_cutoff, test_cutoff, data_as_of=N
                   'Intervals use a separate chronological calibration segment; 90% is a target, not a clinical or IID coverage guarantee.',
                   'Paired MAE percentile intervals cluster whole users, conditional on fitted models. Exploratory comparisons are unadjusted.',
                   'Synthetic effects demonstrate a workflow, not medical causality or real accuracy.']}
+    report['evaluation']['tracking_probability'] = run_tracking_evaluation(data,
+        calibration_cutoff=calibration_cutoff, test_cutoff=test_cutoff,
+        data_as_of=report['evaluation']['data_as_of'], bootstrap_replicates=bootstrap_replicates)
+    report['notes'].extend([
+        'Adaptive weights use a nested chronological segment of training; calibration remains for interval radii.',
+        'Conditional history waiting uses timely no-onset confirmations, never absence of logging.',
+        'Closed-gap probabilities target later explicit user reviews; unknown/unreviewed gaps are unlabelled.',
+        'Probability evaluation is selective to reviewed gaps, not latent biological truth or a validated user reminder.'])
     if authorization:
         if not authorization_is_current(authorization):
             raise ValueError('Consent changed during evaluation; discard the run and create a new snapshot')
@@ -106,7 +134,7 @@ def main():
     if not args.synthetic_only and not args.acknowledge_authorized_data:
         parser.error('Real data requires independent authorization and --acknowledge-authorized-data')
     if args.synthetic_only:
-        data, source = synthetic_event_data(), 'synthetic'
+        data, source = synthetic_event_data(tracking_scenarios=True), 'synthetic'
     elif args.data_json:
         if args.data_json.stat().st_size > 100_000_000:
             parser.error('Event export too large')
