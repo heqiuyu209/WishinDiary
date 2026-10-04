@@ -23,7 +23,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 import skops.io as sio
 
-from app.features import build_cycle_feature_matrix, load_cycle_training_data
+from app.features import build_cycle_feature_matrix
 from app.features.cycle_feature_engineering import (
     MAX_BLEEDING_DAYS,
     MAX_CYCLE_LENGTH,
@@ -252,8 +252,7 @@ def train_and_evaluate(synthetic_only: bool = False, csv_path: str | None = None
         raw_cycles, raw_logs = build_synthetic_training_data()
         raw_cycles.attrs["calendar_provenance"] = "synthetic_calendar"
     else:
-        print("ℹ️ 从数据库加载数据训练")
-        raw_cycles, raw_logs = load_cycle_training_data()
+        raise ValueError('Date-only application database training is retired; use scripts/research_experiments.py with active consent and event snapshots')
     X_real, y_real, meta_real = build_cycle_feature_matrix(raw_cycles, raw_logs)
 
     x_parts = []

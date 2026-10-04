@@ -25,6 +25,8 @@ def read_evaluation_report() -> dict:
         report = json.loads(path.read_text(encoding="utf-8"))
         metadata = report.get("metadata", {})
         dataset = report.get("dataset", {})
+        if dataset.get('source') in ('mysql', 'authorized_database'):
+            return {'available': False, 'message': '旧数据库训练报告缺少事件授权边界，请使用当前授权研究实验'}
         metrics = {}
         for protocol in ("holdout", "group_kfold", "temporal_holdout"):
             values = report.get(protocol, {})

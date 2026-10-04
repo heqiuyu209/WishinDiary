@@ -199,6 +199,8 @@ def read_forecast_report() -> dict:
         dataset = report["dataset"]
         if dataset["source"] not in {"synthetic", "authorized_csv", "authorized_database"}:
             raise ValueError("Unknown data source")
+        if dataset['source'] == 'authorized_database':
+            return {'available': False, 'message': '旧数据库回测缺少事件授权边界，请使用当前授权研究实验'}
         evaluation = report["evaluation"]
         cutoff = date.fromisoformat(evaluation["cutoff"])
         calibration = None

@@ -11,7 +11,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd
 
 from app.core.config import settings
-from app.features import load_cycle_training_data
 from app.ml.forecast_evaluation import pipeline_fingerprint, run_forecast_backtest
 from scripts.generate_clean_training_data import build_synthetic_training_data
 from scripts.train import _collect_env_metadata
@@ -42,8 +41,7 @@ def main() -> None:
         cycles = pd.read_csv(args.csv)
         source_name = 'authorized_csv'
     else:
-        cycles, _ = load_cycle_training_data(clean=False)
-        source_name = 'authorized_database'
+        parser.error('Application database research requires scripts/research_experiments.py and active event-based consent')
     # Canonical ordering makes fingerprints independent of CSV/database row order.
     canonical = cycles.sort_values(['user_id', 'start_date']).to_json(orient='records', date_format='iso')
     report = {
