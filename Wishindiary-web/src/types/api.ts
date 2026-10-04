@@ -110,6 +110,7 @@ export interface ResearchSummary extends StatusResponse {
   forecast_evaluation?: ForecastEvaluation;
   lifestyle_evaluation?: LifestyleEvaluation;
   lifestyle_coverage?: LifestyleCoverage;
+  research_quality?: ResearchQuality;
   recommendations: string[];
 }
 
@@ -393,6 +394,23 @@ export interface LifestyleProtocol {
   excluded_unseen_cases: number;
   metrics: Record<string, LifestyleScore>;
   coverage_groups: Record<string, Record<string, LifestyleScore>>;
+  background_groups?: Record<string, Record<string, LifestyleScore>>;
+}
+export interface ResearchQuality {
+  available: boolean;
+  participants: number;
+  message?: string;
+  daily_records?: number;
+  timely_records?: number;
+  backfilled_records?: number;
+  unknown_recording_time?: number;
+  calendar_days?: number;
+  observed_days?: number;
+  sleep_days?: number;
+  stress_days?: number;
+  exercise_days?: number;
+  coverage_pct?: number | null;
+  background_groups?: Record<string, number>;
 }
 export interface LifestyleEvaluation {
   available: boolean;

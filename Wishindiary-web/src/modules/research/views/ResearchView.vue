@@ -4,6 +4,7 @@ import { getResearchSummaryApi } from '../api';
 import { extractApiErrorMessage } from '../../../shared/api/httpClient';
 import IntervalBreakdownTable from '../components/IntervalBreakdownTable.vue';
 import LifestyleResearchPanel from '../components/LifestyleResearchPanel.vue';
+import ResearchQualityPanel from '../components/ResearchQualityPanel.vue';
 import type {
   ForecastGroup,
   ForecastIntervalMethod,
@@ -113,6 +114,8 @@ onMounted(() => void load());
     </p>
     <p v-if="loading && !summary" role="status">正在汇总研究数据…</p>
     <template v-if="summary">
+      <ResearchQualityPanel v-if="summary.research_quality" :quality="summary.research_quality" />
+      <p class="text-sm text-gray-500">全站运营统计</p>
       <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
         <div
           v-for="card in [
