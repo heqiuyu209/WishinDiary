@@ -8,6 +8,7 @@ PERSONALIZATION_PARAMETERS = {
     'min_gate_samples': 20, 'min_gate_users': 3, 'fallback_model_weight': 0.5,
 }
 PERSONAL_METHODS = ('personal_mean', 'recent6', 'decay3')
+CONDITIONAL_PARAMETERS = {'support_days': [15, 45], 'population_pseudocount': 0.5, 'history_k': 4}
 
 
 def history_group(case):
@@ -90,3 +91,37 @@ class AdaptiveBlend:
         weights = np.array([self.weights.get(gate_group(case), self.global_weight) for case in cases])
         personal = np.array([personal_point(case, rounded=False) for case in cases])
         return np.maximum(1, np.rint(weights * np.asarray(model_points) + (1 - weights) * personal))
+
+
+class ConditionalHistory:
+    """Smoothed empirical waiting distribution; positive stages need no-onset evidence.
+
+    Population labels come from the training prefix only and users have equal
+    total mass. Personal completed history is available at issuance. Conditioning
+    is only applied to the explicit-confirmation cohort built by the evaluator.
+    """
+    def fit(self, cases):
+        self.support = np.arange(15, 46)
+        mass = np.full(len(self.support), 0.5)
+        for user_id in sorted({case.user_id for case in cases}):
+            values = [round(case.actual_remaining + case.elapsed) for case in cases if case.user_id == user_id]
+            counts = np.array([values.count(day) for day in self.support], dtype=float)
+            if counts.sum():
+                mass += counts / counts.sum()
+        self.population = mass / mass.sum()
+        return self
+
+    def predict(self, cases):
+        points = []
+        for case in cases:
+            values = case.history.cycle_length.to_numpy(dtype=int)
+            counts = np.array([np.sum(values == day) for day in self.support], dtype=float)
+            weight = len(values) / (len(values) + 4)
+            personal = counts / counts.sum() if counts.sum() else self.population
+            mass = weight * personal + (1 - weight) * self.population
+            eligible = self.support > case.elapsed
+            if not eligible.any():
+                raise ValueError('Waiting day exceeds the conditional research support')
+            remaining = np.average(self.support[eligible] - case.elapsed, weights=mass[eligible])
+            points.append(max(1, round(float(remaining))))
+        return np.array(points)

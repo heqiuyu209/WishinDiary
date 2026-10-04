@@ -75,8 +75,15 @@ def test_same_cohort_all_variants_time_user_split_and_dynamic_confirmation(paire
                 assert fit['calibration_labels_available_through'] <= paired_report['test_cutoff']
                 if name == 'unseen_users':
                     assert fit['held_out_user_overlap'] == 0
+                for gate in fit['adaptive_blend'].values():
+                    if gate['training_labels_available_through']:
+                        assert gate['training_labels_available_through'] < gate['inner_cutoff']
+                    if gate['validation_labels_available_through']:
+                        assert gate['validation_labels_available_through'] <= paired_report['calibration_cutoff']
             for method in METHODS:
                 assert sum(group[method]['samples'] for group in protocol['coverage_groups'].values()) == protocol['samples']
+                assert sum(group[method]['samples'] for group in protocol['history_groups'].values()) == protocol['samples']
+                assert sum(group[method]['samples'] for group in protocol['variability_groups'].values()) == protocol['samples']
 
 
 def test_report_reader_strips_individual_data_and_rejects_mismatched_cohorts(paired_report, monkeypatch, tmp_path):
@@ -95,6 +102,23 @@ def test_report_reader_strips_individual_data_and_rejects_mismatched_cohorts(pai
     raw['evaluation']['stages']['0']['protocols']['unseen_users']['metrics']['base_direct']['samples'] += 1
     path.write_text(json.dumps(raw), encoding='utf-8')
     assert not read_lifestyle_report()['available']
+
+
+def test_reader_rejects_future_gate_labels_and_bad_personal_groups(paired_report, monkeypatch, tmp_path):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, 'MODEL_PATH', tmp_path / 'model.skops')
+    path = tmp_path / 'lifestyle_evaluation_report.json'
+    for fault in ('future', 'partition'):
+        report = copy.deepcopy(paired_report)
+        protocol = report['stages']['0']['protocols']['existing_users']
+        if fault == 'future':
+            gate = protocol['fits'][0]['adaptive_blend']['base']
+            gate['training_labels_available_through'] = gate['inner_cutoff']
+        else:
+            protocol['history_groups']['short']['base_adaptive']['samples'] += 1
+        path.write_text(json.dumps({'schema_version': 1, 'metadata': {}, 'pipeline_sha256': lifestyle_pipeline_fingerprint(),
+            'dataset': {'source': 'synthetic', 'n_users': 3}, 'evaluation': report}), encoding='utf-8')
+        assert not read_lifestyle_report()['available']
 
 
 def test_future_cycle_edits_and_annotations_cannot_rewrite_training_cohort(monkeypatch):

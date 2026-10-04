@@ -12,6 +12,7 @@ from app.features.lifestyle_features import LIFESTYLE_FEATURE_VERSION, utc_insta
 from app.ml.lifestyle_report import lifestyle_pipeline_fingerprint
 from app.ml.paired_uncertainty import PRIMARY_COMPARISON
 from app.ml.lifestyle_evaluation import PARAMETERS
+from app.ml.personal_history import CONDITIONAL_PARAMETERS, PERSONALIZATION_PARAMETERS
 from app.services.research_dataset_service import (
     authorization_is_current, fingerprint, read_authorized_database, report_authorization, validate_snapshot,
 )
@@ -63,6 +64,8 @@ def register_protocol(*, calibration_cutoff, test_cutoff, data_as_of, bootstrap_
         'primary_comparison': PRIMARY_COMPARISON, 'bootstrap_replicates': bootstrap_replicates,
         'bootstrap_seed': 42, 'rf_seed': 42, 'n_splits': 3, 'target_coverage': 0.9,
         'rf_parameters': dict(PARAMETERS),
+        'personalization_parameters': PERSONALIZATION_PARAMETERS,
+        'conditional_history_parameters': CONDITIONAL_PARAMETERS,
         'synthetic_users': synthetic_users, 'synthetic_cycles': 22, 'environment': _collect_env_metadata()}
     path = run_directory(run_id)
     if path.parent.exists() and sum(1 for _ in path.parent.iterdir()) >= 1000:
@@ -89,6 +92,10 @@ def read_protocol(run_id, *, require_environment=False):
             raise ValueError('Dependency versions changed; restore the registered environment or register a new plan')
         if protocol['rf_parameters'] != PARAMETERS:
             raise ValueError('Estimator parameters changed; register a new plan')
+        if protocol.get('personalization_parameters') != PERSONALIZATION_PARAMETERS:
+            raise ValueError('Personalization parameters changed; register a new plan')
+        if protocol.get('conditional_history_parameters') != CONDITIONAL_PARAMETERS:
+            raise ValueError('Conditional history parameters changed; register a new plan')
     return protocol, digest
 
 

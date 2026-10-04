@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-from app.ml.personal_history import AdaptiveBlend, history_group, personal_point, variability_group
+from app.ml.personal_history import AdaptiveBlend, ConditionalHistory, history_group, personal_point, variability_group
 
 
 def case(index, *, values=(26, 26, 26), user=1, actual=26, label_delay=1):
@@ -51,3 +51,15 @@ def test_sparse_gate_uses_fixed_fallback_without_fitting():
     gate = AdaptiveBlend().fit([case(i) for i in range(10)], forbidden)
     assert not gate.summary['available'] and gate.global_weight == 0.5
     assert gate.predict([case(100)], [34]).tolist() == [30]
+
+
+def test_conditional_waiting_uses_survival_mass_and_no_future_outcome():
+    model = ConditionalHistory().fit([case(i, user=i % 3, actual=26) for i in range(10)])
+    target = case(100, values=(20, 20, 20, 20, 30, 30), actual=10000)
+    initial = model.predict([target])[0]
+    target.elapsed = 21
+    updated = model.predict([target])[0]
+    assert updated > max(1, initial - 21)
+    target.actual_remaining = -10000
+    assert model.predict([target])[0] == updated
+    assert abs(model.population.sum() - 1) < 1e-12
