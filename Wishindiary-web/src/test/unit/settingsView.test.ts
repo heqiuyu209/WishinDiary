@@ -24,7 +24,10 @@ const state = (overrides = {}) => ({
   last_delivery_state: null,
   ...overrides,
 });
-const render = () => mount(SettingsView, { global: { plugins: [createPinia()] } });
+const render = () =>
+  mount(SettingsView, {
+    global: { plugins: [createPinia()], stubs: { ResearchParticipationPanel: true } },
+  });
 
 describe('email and reminder settings', () => {
   beforeEach(() => {

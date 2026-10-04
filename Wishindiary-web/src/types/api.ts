@@ -110,6 +110,8 @@ export interface ResearchSummary extends StatusResponse {
   forecast_evaluation?: ForecastEvaluation;
   lifestyle_evaluation?: LifestyleEvaluation;
   lifestyle_coverage?: LifestyleCoverage;
+  research_quality?: ResearchQuality;
+  research_experiments?: ResearchExperiment[];
   recommendations: string[];
 }
 
@@ -385,6 +387,14 @@ export interface LifestyleScore {
   interval_unavailable_samples?: number;
   coverage_pct?: number;
   mean_width_days?: number;
+  delta_mae_ci95?: {
+    available: boolean;
+    n_users: number;
+    samples: number;
+    min_users: number;
+    lower?: number;
+    upper?: number;
+  };
 }
 export interface LifestyleProtocol {
   samples: number;
@@ -393,6 +403,23 @@ export interface LifestyleProtocol {
   excluded_unseen_cases: number;
   metrics: Record<string, LifestyleScore>;
   coverage_groups: Record<string, Record<string, LifestyleScore>>;
+  background_groups?: Record<string, Record<string, LifestyleScore>>;
+}
+export interface ResearchQuality {
+  available: boolean;
+  participants: number;
+  message?: string;
+  daily_records?: number;
+  timely_records?: number;
+  backfilled_records?: number;
+  unknown_recording_time?: number;
+  calendar_days?: number;
+  observed_days?: number;
+  sleep_days?: number;
+  stress_days?: number;
+  exercise_days?: number;
+  coverage_pct?: number | null;
+  background_groups?: Record<string, number>;
 }
 export interface LifestyleEvaluation {
   available: boolean;
@@ -407,7 +434,22 @@ export interface LifestyleEvaluation {
   target_coverage_pct?: number;
   eligible_cases?: number;
   exclusions?: Record<string, number>;
+  primary_comparison?: { stage: string; protocol: string; method: string; baseline: string } | null;
   stages?: Record<string, { target: string; protocols: Record<string, LifestyleProtocol> }>;
+}
+export interface ResearchExperiment {
+  run_id: string;
+  status: 'registered' | 'frozen' | 'complete' | 'authorization_changed' | 'invalid';
+  registered_at?: string;
+  kind?: 'prospective_plan' | 'retrospective_exploration';
+  calibration_cutoff?: string;
+  test_cutoff?: string;
+  data_as_of?: string;
+  protocol_sha256?: string;
+  pipeline_matches?: boolean;
+  source?: string;
+  n_users?: number;
+  eligible_cases?: number;
 }
 export interface LifestyleCoverage {
   total: number;

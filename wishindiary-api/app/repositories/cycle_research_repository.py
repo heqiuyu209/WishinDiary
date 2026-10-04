@@ -24,5 +24,5 @@ def record_cycle_revisions(cursor, user_id: int, *, source: str = "user_recorded
 
 
 def mark_cycle_history_reset(cursor, user_id: int) -> None:
-    cursor.execute("UPDATE users SET cycle_history_reset_at=%s WHERE user_id=%s",
+    cursor.execute("UPDATE users SET cycle_history_reset_at=%s,research_data_epoch=research_data_epoch+1 WHERE user_id=%s",
                    (utc_now().astimezone(timezone.utc).replace(tzinfo=None), user_id))

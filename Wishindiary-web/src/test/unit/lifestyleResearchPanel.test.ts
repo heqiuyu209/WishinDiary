@@ -73,4 +73,48 @@ describe('LifestyleResearchPanel', () => {
     expect(wrapper.text()).toContain('压力已填写 0/2');
     expect(wrapper.text()).toContain('尚未生成生活因素离线对照报告');
   });
+  it('shows paired uncertainty and labels the fixed comparison without hiding insufficient users', () => {
+    const withIntervals: LifestyleEvaluation = {
+      ...evaluation,
+      primary_comparison: {
+        stage: '0',
+        protocol: 'unseen_users',
+        method: 'sleep_stress_exercise_direct',
+        baseline: 'base_direct',
+      },
+      stages: {
+        '0': {
+          target: 'cycle_length_days',
+          protocols: {
+            unseen_users: {
+              ...protocol,
+              metrics: {
+                ...metrics,
+                sleep_direct: {
+                  ...metrics.sleep_direct!,
+                  delta_mae_ci95: { available: false, n_users: 3, samples: 10, min_users: 10 },
+                },
+                sleep_stress_exercise_direct: {
+                  ...metrics.sleep_stress_exercise_direct!,
+                  delta_mae_ci95: {
+                    available: true,
+                    n_users: 12,
+                    samples: 24,
+                    min_users: 10,
+                    lower: -0.75,
+                    upper: 0.25,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+    const wrapper = mount(LifestyleResearchPanel, { props: { evaluation: withIntervals } });
+    expect(wrapper.text()).toContain('用户不足（3/10）');
+    expect(wrapper.text()).toContain('[-0.75, 0.25]');
+    expect(wrapper.text()).toContain('固定主对照');
+    expect(wrapper.text()).toContain('未做多重比较校正');
+  });
 });

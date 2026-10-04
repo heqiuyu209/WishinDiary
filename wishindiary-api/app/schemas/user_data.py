@@ -20,6 +20,8 @@ class ExportUserDataResponse(StatusResponse):
     exported_at: str = Field(..., description="导出时间（UTC ISO 格式）")
     user: UserProfile
     cycles: list[dict[str, Any]] = Field(default_factory=list)
+    research_consent_events: list[dict[str, Any]] = Field(default_factory=list)
+    research_background_revisions: list[dict[str, Any]] = Field(default_factory=list)
     cycle_revisions: list[dict[str, Any]] = Field(default_factory=list)
     cycle_tracking_events: list[dict[str, Any]] = Field(default_factory=list)
     daily_logs: list[dict[str, Any]] = Field(default_factory=list)

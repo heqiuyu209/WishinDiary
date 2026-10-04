@@ -9,6 +9,8 @@ from app.core.database import transaction
 from app.core.errors import AppError
 from app.services.forecast_report_service import read_forecast_report
 from app.ml.lifestyle_report import read_lifestyle_report
+from app.services.research_quality_service import research_quality
+from app.ml.research_experiments import list_experiments
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,8 @@ def read_evaluation_report() -> dict:
         report = json.loads(path.read_text(encoding="utf-8"))
         metadata = report.get("metadata", {})
         dataset = report.get("dataset", {})
+        if dataset.get('source') in ('mysql', 'authorized_database'):
+            return {'available': False, 'message': '旧数据库训练报告缺少事件授权边界，请使用当前授权研究实验'}
         metrics = {}
         for protocol in ("holdout", "group_kfold", "temporal_holdout"):
             values = report.get(protocol, {})
@@ -102,6 +106,7 @@ class ResearchService:
                         FROM daily_logs
                     """)
                     lifestyle_coverage = {key: int(value or 0) for key, value in cursor.fetchone().items()}
+                    authorized_quality = research_quality(cursor)
         except Exception:
             logger.exception("Research data summary failed")
             raise AppError(503, "service_unavailable", "研究汇总暂不可用，请稍后重试")
@@ -177,5 +182,7 @@ class ResearchService:
             "forecast_evaluation": forecast,
             "lifestyle_evaluation": lifestyle,
             "lifestyle_coverage": lifestyle_coverage,
+            "research_quality": authorized_quality,
+            "research_experiments": list_experiments(),
             "recommendations": recommendations,
         }
