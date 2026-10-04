@@ -26,14 +26,14 @@ def current_background(cursor, user_id):
 
 
 def active_participants(cursor):
-    cursor.execute("SELECT e.user_id,e.episode_id,e.known_at FROM research_consent_events e "
+    cursor.execute("SELECT e.user_id,e.episode_id,e.known_at,u.research_data_epoch FROM research_consent_events e "
+                   "JOIN users u ON u.user_id=e.user_id "
                    "JOIN (SELECT user_id,MAX(event_id) AS latest FROM research_consent_events GROUP BY user_id) s "
                    "ON e.event_id=s.latest WHERE e.action='grant' AND e.policy_version=%s ORDER BY e.user_id", (POLICY_VERSION,))
     return list(cursor.fetchall())
 
 
 def authorization_digest(participants):
-    records = [(row["user_id"], row["episode_id"], row["known_at"].isoformat()) for row in participants]
+    records = [(row["user_id"], row["episode_id"], row["known_at"].isoformat(), row['research_data_epoch']) for row in participants]
     payload = json.dumps([POLICY_VERSION, records], separators=(",", ":")).encode()
     return hmac.new(settings.SECRET_KEY.encode(), payload, hashlib.sha256).hexdigest()
-

@@ -53,4 +53,6 @@ python scripts/research_experiments.py list
 
 ## 部署
 
-执行 `alembic upgrade head`，新增 `0009_research_participation`。迁移不自动替用户授权；存在授权或背景记录时拒绝降级删除这些表。新增接口使用现有会话与 CSRF 保护。
+执行 `alembic upgrade head`，新增 `0009_research_participation` 与 `0010_research_deletion_epoch`。迁移不自动替用户授权；存在授权、背景或删除标记时拒绝有损降级。新增接口使用现有会话与 CSRF 保护。
+
+删除日志、周期及保留期限清理在原事务中更新研究删除标记，使包含已删记录的旧快照和报告失效。删除不改变本次加入时间或个人研究状态。私有历史快照文件不会自动消失，研究负责人应按备份策略清理；系统会阻止继续重放或展示其结果。

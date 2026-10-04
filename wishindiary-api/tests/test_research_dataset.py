@@ -74,3 +74,16 @@ def test_reported_underage_withdraws_in_same_transaction(client, auth_header):
     assert response.status_code == 200
     assert client.get('/api/v1/research/participation').json()['participating'] is False
     assert not read_authorized_database()['data']['enrollment']
+
+
+def test_deleting_record_invalidates_old_snapshot_without_withdrawing_or_resetting_enrollment(client, auth_header):
+    grant(client)
+    assert client.post('/api/v1/daily_log', json={'log_date': '2024-01-01', 'stress_level': 2}).status_code == 200
+    snapshot = read_authorized_database()
+    enrollment = snapshot['data']['enrollment']
+    assert client.delete('/api/v1/daily_log?date=2024-01-01').status_code == 200
+    assert client.get('/api/v1/research/participation').json()['participating'] is True
+    with pytest.raises(ValueError, match='consent changed'):
+        validate_snapshot(snapshot)
+    fresh = read_authorized_database()
+    assert fresh['data']['enrollment'] == enrollment and not fresh['data']['daily_log_revisions']
