@@ -9,6 +9,7 @@ from app.core.database import transaction
 from app.core.errors import AppError
 from app.services.forecast_report_service import read_forecast_report
 from app.ml.lifestyle_report import read_lifestyle_report
+from app.services.research_quality_service import research_quality
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,7 @@ class ResearchService:
                         FROM daily_logs
                     """)
                     lifestyle_coverage = {key: int(value or 0) for key, value in cursor.fetchone().items()}
+                    authorized_quality = research_quality(cursor)
         except Exception:
             logger.exception("Research data summary failed")
             raise AppError(503, "service_unavailable", "研究汇总暂不可用，请稍后重试")
@@ -177,5 +179,6 @@ class ResearchService:
             "forecast_evaluation": forecast,
             "lifestyle_evaluation": lifestyle,
             "lifestyle_coverage": lifestyle_coverage,
+            "research_quality": authorized_quality,
             "recommendations": recommendations,
         }

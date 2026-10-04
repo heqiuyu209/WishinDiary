@@ -56,5 +56,10 @@ class ResearchParticipationService:
                     cursor.execute("INSERT INTO research_background_revisions (user_id,known_at,timezone_name,payload) "
                                    "VALUES (%s,%s,%s,%s)", (user_id, utc_now().astimezone(timezone.utc).replace(tzinfo=None),
                                    user["notification_timezone"], json.dumps(fields)))
+                current = latest_consent(cursor, user_id)
+                if fields['age_band'] == 'under18' and current and current['action'] == 'grant':
+                    cursor.execute("INSERT INTO research_consent_events (user_id,action,policy_version,episode_id,known_at) "
+                                   "VALUES (%s,'withdraw',%s,%s,%s)", (user_id, POLICY_VERSION, current['episode_id'],
+                                   utc_now().astimezone(timezone.utc).replace(tzinfo=None)))
+                    return {"status": "success", "message": "背景已保存；本阶段仅面向成年人，研究授权已撤回"}
         return {"status": "success", "message": "自愿背景已保存；仅用于研究分组，不自动调整预测日期"}
-

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.features.lifestyle_features import FEATURE_GROUPS, LIFESTYLE_FEATURE_VERSION, utc_instant
+from app.services.research_dataset_service import authorization_is_current
 
 logger = logging.getLogger(__name__)
 METHODS = tuple(group + suffix for group in FEATURE_GROUPS for suffix in ('_direct', '_shrinkage')) + ('mean3', 'median3', 'ewma')
@@ -15,7 +16,8 @@ METHODS = tuple(group + suffix for group in FEATURE_GROUPS for suffix in ('_dire
 def lifestyle_pipeline_fingerprint():
     root = Path(__file__).resolve().parents[1]
     paths = ('ml/lifestyle_evaluation.py', 'features/lifestyle_features.py',
-             'features/cycle_feature_engineering.py', 'ml/contract.py', 'ml/prediction_scope.py')
+             'features/cycle_feature_engineering.py', 'ml/contract.py', 'ml/prediction_scope.py',
+             'features/research_background.py', 'core/research_policy.py')
     digest = hashlib.sha256()
     for path in paths:
         digest.update(path.encode() + b'\0' + (root / path).read_bytes() + b'\0')
@@ -74,6 +76,8 @@ def read_lifestyle_report():
         source = raw['dataset']['source']
         if source not in ('synthetic', 'authorized_event_json', 'authorized_database'):
             raise ValueError('Unknown provenance')
+        if source != 'synthetic' and not authorization_is_current(raw.get('authorization')):
+            return {'available': False, 'message': '研究授权已变化或快照未验证，请重新生成授权数据快照与报告'}
         stages = {}
         for stage in ('0', '7', '14', '21'):
             item = evaluation['stages'][stage]
@@ -107,6 +111,14 @@ def read_lifestyle_report():
                     'skipped_empty_folds': count(result['skipped_empty_folds']),
                     'excluded_unseen_cases': count(result['excluded_unseen_cases']), 'fits': fits,
                     'metrics': metrics, 'coverage_groups': groups}
+                if 'background_groups' in result:
+                    backgrounds = {group: {method: score(values[method]) for method in METHODS if method in values}
+                                   for group, values in result['background_groups'].items()
+                                   if group in ('unknown', 'explicit_none', 'reported_context')}
+                    for method in metrics:
+                        if sum(group[method]['samples'] for group in backgrounds.values()) != samples:
+                            raise ValueError('Background groups do not partition samples')
+                    protocols[name]['background_groups'] = backgrounds
             stages[stage] = {'target': 'cycle_length_days' if stage == '0' else 'remaining_wait_days', 'protocols': protocols}
         metadata = raw.get('metadata', {})
         return {'available': True, 'feature_version': LIFESTYLE_FEATURE_VERSION,
@@ -118,7 +130,7 @@ def read_lifestyle_report():
             'target_coverage_pct': evaluation['target_coverage_pct'], 'eligible_cases': count(evaluation['eligible_cases']),
             'exclusions': {key: count(value) for key, value in evaluation['exclusions'].items() if key in (
                 'candidate_intervals', 'late_or_unknown_issuance', 'edited_anchor', 'purged_history', 'unsupported_history',
-                'missing_history', 'confirmed_missed', 'dynamic_without_timely_confirmation')}, 'stages': stages}
+                'missing_history', 'confirmed_missed', 'dynamic_without_timely_confirmation', 'before_enrollment', 'ineligible_age')}, 'stages': stages}
     except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
         logger.warning('Lifestyle report invalid; regenerate the aggregate report')
         return {'available': False, 'message': '生活因素报告无效，请重新生成'}
