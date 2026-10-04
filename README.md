@@ -17,6 +17,7 @@
 - 纯合成数据训练脚本，不需要读取真实用户数据
 - Fehring 格式 CSV 缺少真实开始日期时，训练停用月份特征并标明时间留出不适用；真实时间研究需使用含真实 `start_date` 的标准周期表，详见 [模型卡](MODEL_CARD.md)。
 - [研究管理端](docs/RESEARCH_ADMIN.md)：管理员授权、数据质量与分布、离线评估和基线对比
+- [研究授权与实验治理](docs/RESEARCH_GOVERNANCE.md)：独立自愿参加、撤回与可选医学背景
 - [完整流程回测](docs/RESEARCH_BACKTEST.md)：时间边界、既有/模型未见用户、同样本基线、分组误差与区间覆盖率
 - [时间校准实验](docs/INTERVAL_CALIBRATION.md)：独立训练/校准/测试段、区间覆盖率与宽度、样本不足状态
 - [邮箱与提醒](docs/EMAIL_REMINDERS.md)：可选邮箱注册、验证码绑定、已验证邮箱登录和可关闭的预测提醒
