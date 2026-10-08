@@ -1,5 +1,4 @@
 import json
-import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -23,12 +22,12 @@ def register(**changes):
         bootstrap_replicates=200, synthetic_users=3, **changes)
 
 
-def test_immutable_protocol_freeze_run_replay_and_safe_registry(registry):
+def test_immutable_protocol_freeze_run_replay_and_safe_registry(registry, assert_private_file, docker_application_layout, monkeypatch):
     run_id = register()
     assert experiments.list_experiments()[0]['kind'] == 'retrospective_exploration'
     digest = experiments.freeze_dataset(run_id, synthetic_only=True)
     path = experiments.run_directory(run_id)
-    assert os.stat(path / 'dataset_snapshot.json').st_mode & 0o777 == 0o600
+    assert_private_file(path / 'dataset_snapshot.json')
     with pytest.raises(FileExistsError):
         experiments.freeze_dataset(run_id, synthetic_only=True)
     result = experiments.execute_experiment(run_id, publish_report=True)
@@ -37,6 +36,11 @@ def test_immutable_protocol_freeze_run_replay_and_safe_registry(registry):
     entry = experiments.list_experiments()[0]
     assert entry['status'] == 'complete' and entry['source'] == 'synthetic'
     assert 'data' not in entry and 'signature' not in entry and 'user_id' not in json.dumps(entry)
+    from app.ml import lifestyle_report
+    with monkeypatch.context() as image:
+        image.setattr(lifestyle_report, '__file__', str(docker_application_layout / 'app/ml/lifestyle_report.py'))
+        assert experiments.list_experiments()[0]['status'] == 'complete'
+        assert lifestyle_report.read_lifestyle_report()['available']
     with pytest.raises(ValueError, match='already has'):
         experiments.execute_experiment(run_id)
     snapshot = json.loads((path / 'dataset_snapshot.json').read_text())

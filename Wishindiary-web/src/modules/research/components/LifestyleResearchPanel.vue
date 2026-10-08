@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { LifestyleCoverage, LifestyleEvaluation, LifestyleScore } from '../../../types/api';
+import PersonalHistoryPanel from './PersonalHistoryPanel.vue';
+import TrackingProbabilityPanel from './TrackingProbabilityPanel.vue';
 const props = defineProps<{ evaluation?: LifestyleEvaluation; coverage?: LifestyleCoverage }>();
 const stage = ref('0');
 const protocol = ref('unseen_users');
@@ -14,6 +16,10 @@ const rows = computed(() => [
   { key: 'mean3', label: '最近三次均值' },
   { key: 'median3', label: '最近三次中位数' },
   { key: 'ewma', label: '指数平滑' },
+  { key: 'personal_mean', label: '全历史个人均值' },
+  { key: 'recent6', label: '最近六次均值' },
+  { key: 'decay3', label: '时间衰减（半衰期三次）' },
+  { key: 'conditional_history', label: '条件等待分布' },
 ]);
 const metric = (value: number | undefined, suffix = '') =>
   value == null ? '不可用' : `${value.toFixed(2)}${suffix}`;
@@ -110,13 +116,16 @@ const coverageRows = computed(
           <select v-model="mode" class="mt-1 w-full border rounded-xl p-2">
             <option value="direct">直接模型输出</option>
             <option value="shrinkage">现有个人历史收缩</option>
+            <option value="adaptive">训练段学习融合权重</option>
           </select>
         </label>
       </div>
       <p class="text-xs text-gray-500">
         共同测试 {{ selected?.samples ?? 0 }} / 候选
         {{ selected?.candidate_samples ?? 0 }} 条；空训练折
-        {{ selected?.skipped_empty_folds ?? 0 }}。ΔMAE 相对本模式的周期历史模型，负数表示误差减少。
+        {{ selected?.skipped_empty_folds ?? 0 }}。ΔMAE 相对{{
+          mode === 'shrinkage' ? '现有收缩历史模型（统计基线除外）' : '直接历史模型'
+        }}，负数表示误差减少；统计基线始终相对直接历史模型。
       </p>
       <p v-if="stage !== '0'" class="text-xs text-indigo-700">
         只评估在该日及时确认尚未开始的用户。未打卡不等于尚未开始；不同预测时点的人群不同，不能直接比较误差大小。
@@ -217,6 +226,11 @@ const coverageRows = computed(
       <p v-if="selected?.background_groups" class="text-xs leading-relaxed text-gray-500">
         医学背景使用预测前已知版本，只作分组误差描述；不同背景并不代表同一种机制，小组结果不能解释为原因。
       </p>
+      <PersonalHistoryPanel :protocol="selected" :stage="stage" />
+      <TrackingProbabilityPanel
+        v-if="evaluation.tracking_probability"
+        :evaluation="evaluation.tracking_probability"
+      />
       <p class="text-xs text-gray-500">
         事后补录或未知签发
         {{ evaluation.exclusions?.late_or_unknown_issuance ?? 0 }} 个间隔；缺少及时未开始确认

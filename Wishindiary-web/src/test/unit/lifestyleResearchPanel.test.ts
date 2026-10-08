@@ -73,6 +73,29 @@ describe('LifestyleResearchPanel', () => {
     expect(wrapper.text()).toContain('压力已填写 0/2');
     expect(wrapper.text()).toContain('尚未生成生活因素离线对照报告');
   });
+  it('shows adaptive methods and keeps the direct baseline and fixed primary comparison distinct', async () => {
+    const adaptive: LifestyleEvaluation = {
+      ...evaluation,
+      stages: {
+        '0': {
+          target: 'cycle_length_days',
+          protocols: {
+            unseen_users: {
+              ...protocol,
+              metrics: { ...metrics, base_adaptive: { samples: 10, mae: 0.75 } },
+            },
+          },
+        },
+      },
+    };
+    const wrapper = mount(LifestyleResearchPanel, { props: { evaluation: adaptive } });
+    await wrapper.findAll('select')[2]!.setValue('adaptive');
+    expect(wrapper.text()).toContain('0.75');
+    expect(wrapper.text()).toContain('全历史个人均值');
+    expect(wrapper.text()).toContain('条件等待分布');
+    expect(wrapper.text()).toContain('ΔMAE 相对直接历史模型');
+    expect(wrapper.text()).not.toContain('固定主对照：ΔMAE');
+  });
   it('shows paired uncertainty and labels the fixed comparison without hiding insufficient users', () => {
     const withIntervals: LifestyleEvaluation = {
       ...evaluation,

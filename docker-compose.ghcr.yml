@@ -1,0 +1,8 @@
+# Use with docker-compose.yml; IMAGE_TAG selects one published commit for all services.
+services:
+  backend:
+    image: ghcr.io/heqiuyu209/wishindiary-backend:${IMAGE_TAG:?IMAGE_TAG is required}
+  frontend:
+    image: ghcr.io/heqiuyu209/wishindiary-frontend:${IMAGE_TAG:?IMAGE_TAG is required}
+  reminders:
+    image: ghcr.io/heqiuyu209/wishindiary-backend:${IMAGE_TAG:?IMAGE_TAG is required}
