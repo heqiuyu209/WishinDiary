@@ -8,6 +8,7 @@ import re
 from uuid import uuid4
 
 from app.core.config import settings
+from app.core.private_files import open_private_text
 from app.features.lifestyle_features import LIFESTYLE_FEATURE_VERSION, utc_instant
 from app.ml.lifestyle_report import lifestyle_pipeline_fingerprint
 from app.ml.paired_uncertainty import PRIMARY_COMPARISON
@@ -41,7 +42,7 @@ def read_json(path, max_bytes=1_000_000):
 
 def write_exclusive(path, value):
     payload = json.dumps(value, sort_keys=True, default=str, ensure_ascii=False, indent=2, allow_nan=False)
-    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as file:
+    with open_private_text(path) as file:
         file.write(payload)
 
 

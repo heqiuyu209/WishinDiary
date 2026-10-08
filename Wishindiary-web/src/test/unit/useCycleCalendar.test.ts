@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, nextTick, type App } from 'vue';
 import type { AxiosResponse } from 'axios';
 import {
@@ -28,6 +28,9 @@ vi.mock('../../modules/calendar/api', () => ({
   deleteDailyLogApi: vi.fn(),
   deleteCycleApi: vi.fn(),
 }));
+vi.mock('../../modules/settings/api', () => ({ getNotificationSettingsApi: vi.fn() }));
+
+import { getNotificationSettingsApi } from '../../modules/settings/api';
 
 import { getPredictionApi, getStatsApi } from '../../modules/dashboard/api';
 import {
@@ -104,12 +107,129 @@ const predictionFixture = (nextEnd = '2026-11-04'): PredictionResponseData => ({
 
 describe('useCycleCalendar', () => {
   beforeEach(() => {
+    vi.mocked(getNotificationSettingsApi).mockReset();
+    vi.mocked(getNotificationSettingsApi).mockResolvedValue(
+      ok({
+        status: 'success',
+        timezone: 'Asia/Shanghai',
+      }) as never,
+    );
+    vi.mocked(confirmTrackingApi).mockReset();
     getStatsApiMock.mockReset();
     getPredictionApiMock.mockReset();
     logEndApiMock.mockReset();
     saveDailyLogApiMock.mockReset();
     getDailyLogApiMock.mockReset();
     getDailyLogApiMock.mockRejectedValue({ response: { status: 404 } });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it.each([7, 14, 21])(
+    '经期结束后第 %i 天仍可确认尚未开始，且不出现结束编辑或清空目标',
+    async (elapsed) => {
+      vi.mocked(confirmTrackingApi).mockResolvedValue(ok({ status: 'success' }) as never);
+      const { app, calendar } = await makeCalendar();
+      getStatsApiMock.mockResolvedValue(
+        ok({
+          ...stats,
+          cycles: [
+            {
+              ...closedCycle,
+              end_date: '2020-01-05',
+              cycle_length: null,
+            },
+          ],
+        }) as never,
+      );
+      await calendar.fetchData();
+      calendar.selectedDate.value = new Date(2020, 0, 1 + elapsed);
+      await nextTick();
+      expect(calendar.selectedTrackingCycle.value?.cycle_id).toBe(1);
+      expect(calendar.selectedCycle.value).toBeNull();
+      expect(calendar.endTargetCycle.value).toBeNull();
+      expect(calendar.selectedPreviewMode.value).toBe('none');
+      expect(calendar.canConfirmEnd.value).toBe(false);
+      await calendar.confirmTracking('no_onset');
+      expect(confirmTrackingApi).toHaveBeenCalledWith(
+        1,
+        'no_onset',
+        formatDate(calendar.selectedDate.value),
+      );
+      app.unmount();
+    },
+  );
+
+  it('核对目标在下一次开始日切换；首个开始日前没有核对目标', async () => {
+    const { app, calendar } = await makeCalendar();
+    getStatsApiMock.mockResolvedValue(
+      ok({ ...stats, cycles: [{ ...openCycle, start_date: '2020-01-29' }, closedCycle] }) as never,
+    );
+    await calendar.fetchData();
+    calendar.selectedDate.value = new Date(2020, 0, 28);
+    expect(calendar.selectedTrackingCycle.value?.cycle_id).toBe(1);
+    calendar.selectedDate.value = new Date(2020, 0, 29);
+    expect(calendar.selectedTrackingCycle.value?.cycle_id).toBe(2);
+    calendar.selectedDate.value = new Date(2019, 11, 31);
+    expect(calendar.selectedTrackingCycle.value).toBeNull();
+    await calendar.confirmTracking('no_onset');
+    expect(confirmTrackingApi).not.toHaveBeenCalled();
+    app.unmount();
+  });
+
+  it.each([
+    ['America/Los_Angeles', '2026-10-06'],
+    ['Asia/Shanghai', '2026-10-07'],
+  ])('账户时区 %s 决定默认日期和未来记录门槛', async (timezone, expectedToday) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-06T16:30:00Z'));
+    vi.mocked(getNotificationSettingsApi).mockResolvedValue(
+      ok({ status: 'success', timezone }) as never,
+    );
+    saveDailyLogApiMock.mockResolvedValue(ok({ status: 'success' }) as never);
+    const { app, calendar } = await makeCalendar();
+    expect(formatDate(calendar.selectedDate.value)).toBe(expectedToday);
+    expect(formatDate(calendar.calendarToday.value)).toBe(expectedToday);
+    expect(calendar.canSaveDailyLog.value).toBe(true);
+    await calendar.saveLog();
+    expect(saveDailyLogApiMock).toHaveBeenCalledWith(
+      expect.objectContaining({ log_date: expectedToday }),
+    );
+    calendar.selectedDate.value = new Date(2026, 9, 8);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calendar.isSelectedFuture.value).toBe(true);
+    expect(calendar.canSaveDailyLog.value).toBe(false);
+    await calendar.confirmTracking('no_onset');
+    expect(confirmTrackingApi).not.toHaveBeenCalled();
+    app.unmount();
+  });
+
+  it('账户日期加载失败时禁止写入，重试后恢复', async () => {
+    vi.mocked(getNotificationSettingsApi).mockRejectedValueOnce({ response: { status: 503 } });
+    const { app, calendar } = await makeCalendar();
+    expect(calendar.calendarTimeReady.value).toBe(false);
+    expect(calendar.canSaveDailyLog.value).toBe(false);
+    await calendar.saveLog();
+    await calendar.confirmTracking('no_onset');
+    expect(saveDailyLogApiMock).not.toHaveBeenCalled();
+    expect(confirmTrackingApi).not.toHaveBeenCalled();
+    await calendar.reloadCalendarTime();
+    expect(calendar.calendarTimeReady.value).toBe(true);
+    expect(calendar.canSaveDailyLog.value).toBe(true);
+    app.unmount();
+  });
+
+  it('保持页面打开跨过账户午夜后刷新今天，卸载时移除计时器', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    vi.setSystemTime(new Date('2026-10-06T15:59:50Z'));
+    const { app, calendar } = await makeCalendar();
+    calendar.selectedDate.value = new Date(2026, 9, 7);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calendar.canSaveDailyLog.value).toBe(false);
+    vi.advanceTimersByTime(30_000);
+    expect(formatDate(calendar.calendarToday.value)).toBe('2026-10-07');
+    expect(calendar.canSaveDailyLog.value).toBe(true);
+    app.unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('从 stats 识别最新开放周期并计算历史平均经期天数', async () => {

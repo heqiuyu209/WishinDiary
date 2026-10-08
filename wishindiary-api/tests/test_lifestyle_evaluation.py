@@ -86,8 +86,9 @@ def test_same_cohort_all_variants_time_user_split_and_dynamic_confirmation(paire
                 assert sum(group[method]['samples'] for group in protocol['variability_groups'].values()) == protocol['samples']
 
 
-def test_report_reader_strips_individual_data_and_rejects_mismatched_cohorts(paired_report, monkeypatch, tmp_path):
+def test_report_reader_strips_individual_data_and_rejects_mismatched_cohorts(paired_report, monkeypatch, tmp_path, docker_application_layout):
     from app.core.config import settings
+    from app.ml import lifestyle_report
     monkeypatch.setattr(settings, 'MODEL_PATH', tmp_path / 'model.skops')
     raw = {'schema_version': 1, 'metadata': {}, 'pipeline_sha256': lifestyle_pipeline_fingerprint(),
            'dataset': {'source': 'synthetic', 'n_users': 3}, 'evaluation': paired_report,
@@ -98,6 +99,9 @@ def test_report_reader_strips_individual_data_and_rejects_mismatched_cohorts(pai
     assert sanitized['available'] and 'private_notes' not in sanitized
     assert sanitized['pipeline_matches_report']
     assert sanitized['stages']['0']['protocols']['unseen_users']['metrics']['sleep_direct']['delta_mae_ci95']['n_users'] == 3
+    monkeypatch.setattr(lifestyle_report, '__file__', str(docker_application_layout / 'app/ml/lifestyle_report.py'))
+    assert lifestyle_pipeline_fingerprint() == raw['pipeline_sha256']
+    assert read_lifestyle_report()['available']
     raw['evaluation'] = copy.deepcopy(paired_report)
     raw['evaluation']['stages']['0']['protocols']['unseen_users']['metrics']['base_direct']['samples'] += 1
     path.write_text(json.dumps(raw), encoding='utf-8')

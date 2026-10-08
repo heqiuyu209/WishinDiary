@@ -1,6 +1,6 @@
 /**
  * 日期工具函数 —— 从 CalendarView 抽出的纯函数，便于单元测试与复用。
- * 所有函数基于"本地日期"（不经过 UTC 转换）。
+ * 日期用设备本地午夜表示；账户日期先按指定时区提取年月日。
  */
 
 export const addDays = (date: Date, days: number): Date => {
@@ -42,7 +42,16 @@ export const isOnOrAfter = (
 export const isAfter = (left: Date | null | undefined, right: Date | null | undefined): boolean =>
   !!left && !!right && left.getTime() > right.getTime();
 
-export const today = (): Date => {
-  const now = new Date();
+export const today = (timezone?: string, now = new Date()): Date => {
+  if (timezone) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(now);
+    const part = (type: string) => Number(parts.find((value) => value.type === type)!.value);
+    return new Date(part('year'), part('month') - 1, part('day'));
+  }
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 };

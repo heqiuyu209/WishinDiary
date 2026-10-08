@@ -6,6 +6,7 @@ __pycache__/
 tests/
 scripts/*
 !scripts/send_reminders.py
+!scripts/lifestyle_backtest.py
 *.pkl
 *.joblib
 !ml/*.skops

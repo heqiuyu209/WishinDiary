@@ -24,7 +24,7 @@ def test_repair_plan_preserves_real_end_and_does_not_guess_missing_end():
     assert rows[1]["end_date"] == date(2024, 2, 26)
 
 
-def test_dry_run_and_apply_with_private_recovery_copy(client, auth_header, tmp_path):
+def test_dry_run_and_apply_with_private_recovery_copy(client, auth_header, tmp_path, assert_private_file):
     user_id = client.get("/api/v1/auth/session").json()["user_id"]
     with transaction() as connection:
         with connection.cursor() as cursor:
@@ -38,7 +38,7 @@ def test_dry_run_and_apply_with_private_recovery_copy(client, auth_header, tmp_p
     backup = tmp_path / "recovery.json"
     assert repair_history(apply=True, backup=backup)["records_to_repair"] == 1
     assert json.loads(backup.read_text())[0]["before"]["end_date"] == "2024-01-29"
-    assert backup.stat().st_mode & 0o777 == 0o600
+    assert_private_file(backup)
     first = client.get("/api/v1/stats").json()["cycles"][0]
     assert first["end_date"] is None
     assert first["cycle_length"] == 28
