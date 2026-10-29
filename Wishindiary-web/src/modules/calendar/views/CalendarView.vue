@@ -38,6 +38,26 @@ const {
       <div
         class="md:col-span-6 bg-white rounded-3xl shadow-[0_20px_60px_-15px_rgba(244,63,94,0.10)] border border-gray-100 p-6 flex flex-col items-center"
       >
+        <ul
+          aria-label="日历标记说明"
+          class="mb-4 flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-gray-500"
+        >
+          <li class="flex items-center gap-1.5">
+            <span aria-hidden="true" class="h-2.5 w-2.5 rounded-full bg-red-500"></span>
+            经期记录与预览
+          </li>
+          <li class="flex items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              class="h-2.5 w-2.5 rounded-full border-2 border-purple-500"
+            ></span>
+            预计开始日
+          </li>
+          <li class="flex items-center gap-1.5">
+            <span aria-hidden="true" class="h-2.5 w-2.5 rounded-full bg-green-200"></span>
+            估算易孕期
+          </li>
+        </ul>
         <DatePicker
           v-model="selectedDate"
           :attributes="calendarAttributes"

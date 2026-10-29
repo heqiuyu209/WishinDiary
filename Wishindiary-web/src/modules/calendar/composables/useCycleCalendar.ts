@@ -78,9 +78,9 @@ export function useCycleCalendar() {
 
   const isSelectedFuture = computed(() => isAfter(toLocalDate(selectedDate.value), today()));
   const calendarMaxDate = computed(() => {
-    const forecastEnd = toLocalDate(prediction.value?.next_period_end);
+    const forecastStart = toLocalDate(prediction.value?.next_period_start);
     const fertileEnd = toLocalDate(prediction.value?.fertile_window_end);
-    const latestForecast = [forecastEnd, fertileEnd]
+    const latestForecast = [forecastStart, fertileEnd]
       .filter((value): value is Date => !!value)
       .reduce((latest, value) => (isAfter(value, latest) ? value : latest), today());
     return addDays(latestForecast, 35);
@@ -203,16 +203,16 @@ export function useCycleCalendar() {
 
     if (prediction.value) {
       const nextStart = toLocalDate(prediction.value.next_period_start);
-      const nextEnd = toLocalDate(prediction.value.next_period_end);
       const fertileStart = toLocalDate(prediction.value.fertile_window_start);
       const fertileEnd = toLocalDate(prediction.value.fertile_window_end);
 
-      if (nextStart && nextEnd) {
+      if (nextStart) {
         attrs.push({
-          key: 'pred-period',
-          highlight: { color: 'purple', fillMode: 'light' },
-          dates: { start: nextStart, end: nextEnd },
+          key: 'pred-start',
+          highlight: { color: 'purple', fillMode: 'outline' },
+          dates: nextStart,
           order: 1,
+          customData: { state: 'predicted-start' },
         });
       }
 
