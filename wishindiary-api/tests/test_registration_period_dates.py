@@ -35,6 +35,16 @@ def _login(client, username: str = "bf_user") -> None:
 
 
 class TestRegisterBackfillWrites:
+    def test_unknown_backfilled_ends_allow_latest_end(self, client):
+        assert _register(client, "bf_user", ["2024-01-01", "2024-01-29"]).status_code == 200
+        _login(client)
+        response = client.post("/api/v1/log_end", json={"end_date": "2024-02-02"})
+        assert response.status_code == 200, response.text
+        first, latest = client.get("/api/v1/stats").json()["cycles"]
+        assert first["end_date"] is None
+        assert first["cycle_length"] == 28
+        assert latest["end_date"] == "2024-02-02"
+
     def test_two_dates_write_one_complete_cycle(self, client):
         d_prev, d_latest = _dates_offsets(-56, -28)  # 相邻间隔 28 天
         resp = _register(client, "bf_user", [d_prev, d_latest])

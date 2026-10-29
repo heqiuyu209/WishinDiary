@@ -41,8 +41,18 @@ def read_evaluation_report() -> dict:
             "git_commit": str(metadata.get("git_commit", ""))[:40],
             "model_version": str(metadata.get("model_version", ""))[:80],
             "model_matches_report": model_matches,
+            "temporal_holdout_status": (
+                "not_applicable" if report.get("temporal_holdout", {}).get("status") == "not_applicable"
+                else "available" if "mae" in metrics["temporal_holdout"] else "unavailable"
+            ),
             "dataset": {key: dataset.get(key) for key in (
-                "source", "total_samples", "real_samples", "synthetic_samples", "n_users")},
+                "source", "total_samples", "real_samples", "synthetic_samples", "n_users")} | {
+                    "calendar_provenance": sorted({value for value in dataset.get("calendar_provenance", [])
+                        if isinstance(value, str) and value in {
+                            "recorded_calendar", "synthetic_calendar", "synthetic_cycle_order"}}),
+                    "calendar_features_enabled": dataset.get("calendar_features_enabled")
+                        if isinstance(dataset.get("calendar_features_enabled"), bool) else None,
+                },
             "metrics": metrics,
         }
     except (OSError, ValueError, TypeError, AttributeError):
@@ -89,6 +99,8 @@ class ResearchService:
         recommendations = []
         if evaluation.get("dataset", {}).get("source") == "synthetic":
             recommendations.append("当前指标来自合成数据，用于验证流程；真实预测效果需要独立授权数据评估。")
+        if evaluation.get("temporal_holdout_status") == "not_applicable":
+            recommendations.append("当前 CSV 无真实开始日期，月份特征已停用，真实时间留出不适用；请用含真实日期的授权标准周期表进行时间研究。")
         group = evaluation.get("metrics", {}).get("group_kfold", {})
         if "mae" in group and "baseline_mean3_mae" in group:
             if group["mae"] >= group["baseline_mean3_mae"]:

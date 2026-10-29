@@ -15,7 +15,6 @@ from app.core.database import transaction
 from app.core.errors import AppError
 from app.repositories import (
     get_cycle_by_id,
-    close_cycle,
     delete_cycle,
     get_cycle_for_log_end,
     get_next_cycle,
@@ -33,8 +32,6 @@ from app.repositories.prediction_log_repository import (
 )
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_BLEEDING_DAYS = 5
 
 # 哨兵值：区分"未传字段"与"显式传 None"
 _UNSET = object()
@@ -55,7 +52,11 @@ class CycleService:
     """周期生命周期业务：开始 / 结束 / 编辑 / 删除。"""
 
     def log_start(self, user_id: int, start_date: date) -> dict:
-        """标记周期开始，并自动闭合上一未结束周期、回填预测对账。"""
+        """标记周期开始、重算相邻周期长度并回填预测对账。
+
+        下一次开始只确定上一周期长度，不代表知道上一经期的结束日。
+        历史 end_date=None 表示未记录；只有最新记录可能是进行中的经期。
+        """
         if start_date > date.today():
             raise AppError(400, "invalid_input", "开始日期不能晚于今天")
 
@@ -76,8 +77,7 @@ class CycleService:
                                 "存在进行中的周期：新周期开始日期不能早于或等于上个未结束周期",
                             )
 
-                    # 2. 与已闭合周期的区间重叠校验（在闭合未闭合周期之前执行，
-                    #    避免 close_cycle 把其 end_date 写成 start_date 后自相命中）。
+                    # 2. 与已记录的经期区间校验。
                     conflicting = get_conflicting_closed_cycle(cursor, user_id, start_date)
                     if conflicting:
                         raise AppError(
@@ -86,19 +86,9 @@ class CycleService:
                             "与已有经期记录重叠：该日期已落在一条已结束的经期记录区间内",
                         )
 
-                    if unclosed_cycle:
-                        cycle_length = (start_date - prev_start).days
-                        # 闭合上一周期
-                        close_cycle(
-                            cursor,
-                            unclosed_cycle["cycle_id"],
-                            start_date,
-                            cycle_length,
-                            _DEFAULT_BLEEDING_DAYS,
-                        )
-
                     # 3. 写入新周期 (利用 UNIQUE KEY uk_user_start 兜底幂等性)
                     insert_cycle(cursor, user_id, start_date)
+                    recalculate_cycle_lengths(cursor, user_id)
 
                     # 4. 对上一周期的首次前瞻快照回填；不按实际结果挑选最接近的预测。
                     pending = get_pending_prediction_for_reconcile(cursor, user_id, start_date)
@@ -126,8 +116,8 @@ class CycleService:
         """标记经期结束（或调整区间结束日）。
 
         匹配策略：
-        1. 优先匹配最新且未结束（end_date IS NULL）的周期；
-        2. 若都已闭合，则匹配最新周期，用本次 end_date 修正/覆盖其结束日。
+        1. 指定 cycle_id 时，可补录或修正历史经期；
+        2. 未指定时只匹配最新周期，不把历史漏记误判为当前经期。
         """
         if end_date > date.today():
             raise AppError(400, "invalid_input", "结束日期不能晚于今天")
@@ -135,6 +125,7 @@ class CycleService:
         try:
             with transaction() as connection:
                 with connection.cursor() as cursor:
+                    cursor.execute("SELECT user_id FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
                     active_cycle = get_cycle_for_log_end(cursor, user_id, cycle_id)
                     if not active_cycle:
                         raise AppError(400, "invalid_input", "未找到对应的经期开始记录，请先标记开始。")
@@ -149,9 +140,7 @@ class CycleService:
                     )
                     if prev_cycle:
                         prev_end = _normalize_date(prev_cycle["end_date"])
-                        if prev_end is None:
-                            raise AppError(400, "invalid_input", "前一周期尚未结束，请先处理前一条记录")
-                        if prev_end >= start_date_obj:
+                        if prev_end is not None and prev_end >= start_date_obj:
                             raise AppError(400, "invalid_input", "与前一周期重叠，请重新选择结束日期")
 
                     next_cycle = get_next_cycle(
@@ -191,6 +180,7 @@ class CycleService:
         try:
             with transaction() as connection:
                 with connection.cursor() as cursor:
+                    cursor.execute("SELECT user_id FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
                     cycle = get_cycle_by_id(cursor, user_id, cycle_id)
                     if not cycle:
                         raise AppError(404, "not_found", "周期不存在")
@@ -211,19 +201,15 @@ class CycleService:
                     prev_cycle = get_prev_cycle(cursor, user_id, cycle_id, new_start)
                     if prev_cycle:
                         prev_end = prev_cycle["end_date"]
-                        if prev_end is None:
-                            raise AppError(400, "invalid_input", "不能在前一未闭合周期之后创建或移动周期")
                         prev_end_obj = _normalize_date(prev_end)
-                        if prev_end_obj >= new_start:
+                        if prev_end_obj is not None and prev_end_obj >= new_start:
                             raise AppError(400, "invalid_input", "与已有周期重叠：开始日期不晚于前一周期结束日")
 
                     # 校验：最近后继周期
                     next_cycle = get_next_cycle(cursor, user_id, cycle_id, new_start)
                     if next_cycle:
                         next_start_obj = _normalize_date(next_cycle["start_date"])
-                        if new_end is None:
-                            raise AppError(400, "invalid_input", "不能把存在后续周期的记录设为未结束周期")
-                        if new_end >= next_start_obj:
+                        if new_end is not None and new_end >= next_start_obj:
                             raise AppError(400, "invalid_input", "与已有周期重叠：结束日期不早于下一周期开始日")
 
                     # 更新周期
@@ -247,6 +233,7 @@ class CycleService:
         try:
             with transaction() as connection:
                 with connection.cursor() as cursor:
+                    cursor.execute("SELECT user_id FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
                     cycle = get_cycle_by_id(cursor, user_id, cycle_id)
                     if not cycle:
                         raise AppError(404, "not_found", "周期不存在")

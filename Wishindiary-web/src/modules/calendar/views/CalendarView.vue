@@ -13,6 +13,10 @@ const {
   message,
   errorMsg,
   dailyForm,
+  dailyLogLoading,
+  dailyLogLoadError,
+  canSaveDailyLog,
+  reloadDailyLog,
   isSelectedFuture,
   calendarMaxDate,
   openCycle,
@@ -85,7 +89,17 @@ const {
       </div>
 
       <div class="md:col-span-6">
-        <DailyHealthForm v-model:form="dailyForm" :disabled="isSelectedFuture" @save="saveLog" />
+        <p v-if="dailyLogLoading" role="status" class="mb-2 text-xs text-gray-500">
+          正在加载当天档案…
+        </p>
+        <button
+          v-if="dailyLogLoadError"
+          class="mb-2 text-xs text-purple-600 underline"
+          @click="reloadDailyLog"
+        >
+          重新加载档案
+        </button>
+        <DailyHealthForm v-model:form="dailyForm" :disabled="!canSaveDailyLog" @save="saveLog" />
       </div>
     </div>
 

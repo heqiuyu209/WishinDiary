@@ -16,7 +16,8 @@ const symptomOptions: Array<{ key: keyof DailyFormData['symptom_levels']; label:
 </script>
 
 <template>
-  <div
+  <fieldset
+    :disabled="disabled"
     class="relative overflow-hidden bg-gradient-to-br from-white via-rose-50/30 to-pink-50/40 rounded-3xl shadow-[0_20px_60px_-15px_rgba(244,63,94,0.10)] border border-rose-100/50 p-6 flex flex-col h-full"
   >
     <div class="mb-5 flex items-center justify-between">
@@ -181,5 +182,5 @@ const symptomOptions: Array<{ key: keyof DailyFormData['symptom_levels']; label:
     >
       保存档案并生成分析
     </button>
-  </div>
+  </fieldset>
 </template>

@@ -11,18 +11,28 @@ def get_user_valid_cycles(cursor, user_id: int):
     return cursor.fetchall()
 
 
-def get_unclosed_cycle_for_update(cursor, user_id: int):
-    """取最近一条未结束的周期并加行级排他锁（供 log_start 使用）。"""
+def get_recent_cycle_lengths(cursor, user_id: int):
+    """Read raw intervals for quality checks before model eligibility filtering."""
     cursor.execute("""
-        SELECT cycle_id, start_date
+        SELECT cycle_length FROM cycles
+        WHERE user_id = %s AND cycle_length IS NOT NULL
+        ORDER BY start_date DESC LIMIT 3
+    """, (user_id,))
+    return cursor.fetchall()
+
+
+def get_unclosed_cycle_for_update(cursor, user_id: int):
+    """只有最新周期未记录结束时，才把它视为当前开放周期。"""
+    cursor.execute("""
+        SELECT cycle_id, start_date, end_date
         FROM cycles
         WHERE user_id = %s
-          AND end_date IS NULL
         ORDER BY start_date DESC
         LIMIT 1
             FOR UPDATE
     """, (user_id,))
-    return cursor.fetchone()
+    latest = cursor.fetchone()
+    return latest if latest and latest["end_date"] is None else None
 
 
 def close_cycle(cursor, cycle_id: int, end_date, cycle_length: int, bleeding_days: int):
@@ -41,8 +51,7 @@ def get_conflicting_closed_cycle(cursor, user_id: int, start_date):
 
     用于 log_start 重叠校验：拒绝把新周期开始日建在一条已结束
     经期记录的区间内（例如已闭合 A[6-1, 6-28]，又提交 B[6-10]）。
-    end_date 为 NULL 的未闭合周期不参与——它将在本流程内被闭合，
-    若提前把它的开始日算作"s"命中反而会造成误判。
+    end_date 为 NULL 表示结束日期未知，不推测实际经期区间。
     """
     cursor.execute("""
         SELECT cycle_id, start_date, end_date
@@ -71,7 +80,7 @@ def get_cycle_for_log_end(cursor, user_id: int, cycle_id: int | None = None):
     """定位 log_end 的目标周期。
 
     1. 指定 cycle_id 时精确定位该周期（用于修正历史周期）；
-    2. 未指定时优先取最新未结束周期，其次回退到最新周期。
+    2. 未指定时只取最新周期，历史未知结束日期不参与默认定位。
     """
     if cycle_id is not None:
         cursor.execute("""
@@ -80,17 +89,7 @@ def get_cycle_for_log_end(cursor, user_id: int, cycle_id: int | None = None):
         """, (cycle_id, user_id))
         return cursor.fetchone()
 
-    # 优先：最新未结束周期
-    cursor.execute("""
-        SELECT cycle_id, start_date FROM cycles
-        WHERE user_id = %s AND end_date IS NULL
-        ORDER BY start_date DESC LIMIT 1
-    """, (user_id,))
-    active_cycle = cursor.fetchone()
-    if active_cycle:
-        return active_cycle
-
-    # 回退：最新周期（允许修正已自动闭合的结束日）
+    # 最新周期（允许修正已记录的结束日）。
     cursor.execute("""
         SELECT cycle_id, start_date FROM cycles
         WHERE user_id = %s
@@ -160,7 +159,7 @@ def get_all_cycles_sorted(cursor, user_id: int):
 def update_cycle_dates(cursor, cycle_id: int, start_date, end_date, bleeding_days):
     """更新指定周期的日期字段。
 
-    end_date 为 None 时表示取消闭合（同时清空 bleeding_days / cycle_length）。
+    end_date 为 None 时表示结束日未知；周期长度仍由相邻开始日确定。
     """
     if end_date is None:
         cursor.execute("""
@@ -181,10 +180,10 @@ def delete_cycle(cursor, cycle_id: int):
 
 
 def recalculate_cycle_lengths(cursor, user_id: int):
-    """重算用户所有已闭合周期的周期长度。
+    """重算用户所有有后继开始记录的周期长度，独立于经期结束日。
 
     规则：cycle_length = 下一个周期.start_date - 本周期.start_date
-    最后一个周期若未闭合，其 cycle_length 置为 NULL。
+    最后一个周期无后继，其 cycle_length 置为 NULL。
     """
     cycles = get_all_cycles_sorted(cursor, user_id)
 

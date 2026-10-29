@@ -1,7 +1,11 @@
 """数据质量提示（疑似漏记/过短周期）单元测试。
 
-只测纯函数 build_data_quality_warnings，不依赖数据库。
+覆盖纯函数及真实 API 链路，确保模型过滤不会吞掉异常记录。
 """
+from datetime import date, timedelta
+
+import pytest
+
 from app.services.prediction_service import build_data_quality_warnings
 
 
@@ -54,3 +58,27 @@ def test_dirty_long_interval_still_reported():
     warnings = build_data_quality_warnings(_features(65, 28, 30))
     assert len(warnings) == 1
     assert "漏" in warnings[0]
+
+
+@pytest.mark.parametrize("intervals, wording", [
+    ([28, 28, 28, 28, 56], "漏"),  # ML 路径：56 天不进入模型窗口。
+    ([28, 28, 12], "短"),  # 基础统计路径也要检查原始间隔。
+])
+def test_prediction_checks_raw_intervals_before_filtering(client, auth_header, intervals, wording):
+    current = date(2024, 1, 1)
+    for length in [*intervals, None]:
+        response = client.post("/api/v1/log_start", json={"start_date": current.isoformat()})
+        assert response.status_code == 200, response.text
+        if length:
+            current += timedelta(days=length)
+    response = client.get("/api/v1/prediction")
+    assert response.status_code == 200, response.text
+    warnings = response.json()["prediction"]["data_quality_warnings"]
+    assert warnings and any(wording in warning for warning in warnings)
+    assert str(intervals[-1]) in warnings[0]
+
+
+def test_normal_raw_history_has_no_warning(client, auth_header):
+    for start in ["2024-01-01", "2024-01-29", "2024-02-26"]:
+        assert client.post("/api/v1/log_start", json={"start_date": start}).status_code == 200
+    assert client.get("/api/v1/prediction").json()["prediction"]["data_quality_warnings"] is None
