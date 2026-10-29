@@ -81,7 +81,7 @@ def _is_healthy_cycle(row):
     return True
 
 
-def load_cycle_training_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_cycle_training_data(*, clean: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
     """从数据库拉取原始周期数据并转化为 Pandas DataFrame（含医学范围清洗）。"""
     connection = _connect_db()
     try:
@@ -98,7 +98,7 @@ def load_cycle_training_data() -> tuple[pd.DataFrame, pd.DataFrame]:
         connection.close()
 
     # 医学范围清洗：剔除 0 天 / 70 天这类异常标记或测试垃圾
-    if not df_cycles.empty:
+    if clean and not df_cycles.empty:
         healthy_mask = (
             df_cycles["cycle_length"].between(MIN_CYCLE_LENGTH, MAX_CYCLE_LENGTH)
             & (
@@ -203,14 +203,7 @@ def get_latest_features_for_user(user_id: int) -> tuple[dict[str, float | int], 
     finally:
         connection.close()
 
-    if not df_cycles.empty:
-        df_cycles = df_cycles.loc[
-            df_cycles["cycle_length"].between(MIN_CYCLE_LENGTH, MAX_CYCLE_LENGTH)
-            & (
-                df_cycles["bleeding_days"].isna()
-                | df_cycles["bleeding_days"].between(MIN_BLEEDING_DAYS, MAX_BLEEDING_DAYS)
-            )
-        ].sort_values("start_date")
+    df_cycles = prepare_ml_history(df_cycles)
 
     # P0-2 贝叶斯收缩个性化统计：
     # 基于过滤后的全部历史（LIMIT 50 内）统计，
@@ -238,6 +231,19 @@ def get_latest_features_for_user(user_id: int) -> tuple[dict[str, float | int], 
 
     features = build_prediction_feature_row(df_cycles, last_start_date)
     return features, last_start_date, n_complete_cycles, user_mean
+
+
+def prepare_ml_history(history: pd.DataFrame) -> pd.DataFrame:
+    """Match the API's latest-50 query followed by feature-range filtering."""
+    frame = _normalize_cycle_frame(history)
+    if frame.empty:
+        return frame
+    frame = frame.sort_values("start_date").tail(50)
+    return frame.loc[
+        frame["cycle_length"].between(MIN_CYCLE_LENGTH, MAX_CYCLE_LENGTH)
+        & (frame["bleeding_days"].isna()
+           | frame["bleeding_days"].between(MIN_BLEEDING_DAYS, MAX_BLEEDING_DAYS))
+    ]
 
 
 def build_prediction_feature_row(history: pd.DataFrame, prediction_start: date) -> dict[str, float]:

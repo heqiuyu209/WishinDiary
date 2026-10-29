@@ -7,6 +7,7 @@ import math
 from app.core.config import settings
 from app.core.database import transaction
 from app.core.errors import AppError
+from app.services.forecast_report_service import read_forecast_report
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ class ResearchService:
             logger.exception("Research data summary failed")
             raise AppError(503, "service_unavailable", "研究汇总暂不可用，请稍后重试")
         evaluation = read_evaluation_report()
+        forecast = read_forecast_report()
         recommendations = []
         if evaluation.get("dataset", {}).get("source") == "synthetic":
             recommendations.append("当前指标来自合成数据，用于验证流程；真实预测效果需要独立授权数据评估。")
@@ -97,7 +99,25 @@ class ResearchService:
             recommendations.append("存在范围外周期或缺失出血天数：核对记录来源，分别评估不同波动程度与缺失比例，保留原始记录。")
         if evaluation.get("model_matches_report") is False:
             recommendations.append("当前模型文件与评估报告不匹配，请生成对应报告后再解读指标。")
-        recommendations.append("补充完整线上算法的前瞻回测、分组误差和预测区间覆盖率；离线 RF 指标不能直接代表最终提醒效果。")
+        if not forecast.get("available"):
+            recommendations.append("生成完整流程的前瞻回测报告，比较个人历史收缩后的结果、简单基线、分组误差和区间覆盖率。")
+        elif forecast.get("pipeline_matches_report") is False:
+            recommendations.append("预测算法代码与回测报告不匹配，请重新生成报告后再比较结果。")
+        else:
+            if forecast["dataset"]["source"] == "synthetic":
+                recommendations.append("完整流程回测也来自合成数据：只能验证研究流程，真实效果仍需要独立授权数据。")
+            for name, label in (("existing_users", "既有用户"), ("unseen_users", "模型未见用户")):
+                result = forecast["protocols"][name]
+                methods = result["models"]
+                point = methods.get("online_pipeline", {}).get("mae")
+                baselines = [methods[key]["mae"] for key in ("mean3", "median3", "ewma")
+                             if "mae" in methods.get(key, {})]
+                if point is not None and baselines and point >= min(baselines):
+                    recommendations.append(f"{label}回测中完整流程尚未超过最好的简单基线：比较个人历史权重和窗口长度，并用独立未来数据复核。")
+                interval = result["intervals"].get("rf_personalized", {})
+                coverage = interval.get("coverage_pct")
+                if coverage is not None and coverage < 90:
+                    recommendations.append(f"{label}的树分位区间覆盖率为 {coverage:.2f}%：优先建立独立时间校准段，再在未使用的未来测试段验证覆盖率与宽度。")
         return {
             "status": "success",
             "data": {
@@ -114,5 +134,6 @@ class ResearchService:
                 ],
             },
             "evaluation": evaluation,
+            "forecast_evaluation": forecast,
             "recommendations": recommendations,
         }

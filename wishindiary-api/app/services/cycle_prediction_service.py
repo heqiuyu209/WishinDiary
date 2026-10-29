@@ -28,8 +28,9 @@ class CyclePredictionService:
     # w = 1 / (1 + n / K)，n 为用户完整周期数（样本越多越信任个人均值）。
     SHRINKAGE_K = 4.0
 
-    def __init__(self):
-        self.model = self._load_model()
+    def __init__(self, *, model=None):
+        self.model_sha256 = None
+        self.model = model if model is not None else self._load_model()
 
     def _load_model(self):
         """Load a signed skops model; never execute arbitrary pickle payloads."""
@@ -41,9 +42,9 @@ class CyclePredictionService:
             logger.error("拒绝加载非 skops 模型文件: %s", model_path)
             return None
         try:
+            actual_hash = hashlib.sha256(model_path.read_bytes()).hexdigest()
             expected_hash = getattr(settings, "MODEL_SHA256", "")
             if expected_hash:
-                actual_hash = hashlib.sha256(model_path.read_bytes()).hexdigest()
                 if actual_hash != expected_hash:
                     raise RuntimeError("模型 SHA-256 校验失败")
 
@@ -60,6 +61,7 @@ class CyclePredictionService:
             if trained_names is not None and list(trained_names) != list(FEATURE_NAMES):
                 raise RuntimeError("模型特征顺序与线上契约不一致")
             logger.info("经期预测模型加载成功（安全 .skops）: %s (%s)", model_path, MODEL_VERSION)
+            self.model_sha256 = actual_hash
             return model
         except Exception:
             logger.exception("经期预测模型加载失败，启用无模型基线预测")

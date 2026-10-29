@@ -145,3 +145,27 @@ def test_upgrade_downgrade_upgrade_roundtrip(migration_db):
     tables = _table_names(migration_db)
     assert EXPECTED_TABLES <= tables
     assert _version_num(migration_db) == _head_revision()
+
+
+def test_snapshot_migration_preserves_legacy_logs_without_guessing_anchor(migration_db):
+    cfg = _alembic_cfg(migration_db)
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "0004_email_reminders")
+    conn = pymysql.connect(host=settings.DB_HOST, user=settings.DB_USER,
+                           password=settings.DB_PASSWORD, database=migration_db, autocommit=True)
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("INSERT INTO users (username, password_hash) VALUES ('migration_user','fixture')")
+            user_id = cursor.lastrowid
+            cursor.execute("INSERT INTO prediction_logs (user_id, predicted_date, actual_date, error_days) VALUES (%s,'2024-01-29','2024-01-30',1)", (user_id,))
+        command.upgrade(cfg, "head")
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT anchor_start_date, issued_at, error_days FROM prediction_logs")
+            assert cursor.fetchone() == (None, None, 1)
+        command.downgrade(cfg, "0004_email_reminders")
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT error_days FROM prediction_logs")
+            assert cursor.fetchone() == (1,)
+    finally:
+        conn.close()
+        command.upgrade(cfg, "head")
