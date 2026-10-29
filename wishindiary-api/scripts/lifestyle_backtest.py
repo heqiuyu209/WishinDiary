@@ -1,7 +1,6 @@
 """Research-only lifestyle ablation. Never publishes weights or changes predictions."""
 import argparse
 from datetime import date, datetime, time, timedelta, timezone
-import hashlib
 import json
 from pathlib import Path
 import sys
@@ -9,9 +8,11 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.config import settings
-from app.core.database import transaction
 from app.ml.lifestyle_evaluation import run_lifestyle_ablation
 from app.ml.lifestyle_report import lifestyle_pipeline_fingerprint
+from app.services.research_dataset_service import (
+    authorization_is_current, fingerprint, read_authorized_database, report_authorization, validate_snapshot,
+)
 from scripts.train import _collect_env_metadata
 
 
@@ -61,26 +62,39 @@ def synthetic_event_data(n_users=6, n_cycles=22):
     return {'cycle_revisions': cycles, 'daily_log_revisions': daily, 'cycle_tracking_events': tracking, 'resets': {}}
 
 
-def read_authorized_database():
-    result = {}
-    with transaction() as connection:
-        with connection.cursor() as cursor:
-            for table in ('cycle_revisions', 'daily_log_revisions', 'cycle_tracking_events'):
-                cursor.execute(f'SELECT * FROM {table} ORDER BY user_id LIMIT 1000001')
-                rows = list(cursor.fetchall())
-                if len(rows) > 1_000_000:
-                    raise ValueError('Dataset too large; use a separately authorized bounded export')
-                result[table] = rows
-            cursor.execute('SELECT user_id,cycle_history_reset_at FROM users WHERE cycle_history_reset_at IS NOT NULL')
-            result['resets'] = {row['user_id']: row['cycle_history_reset_at'] for row in cursor.fetchall()}
-    return result
+def evaluate_data(data, source, *, calibration_cutoff, test_cutoff, data_as_of=None,
+                  authorization=None, bootstrap_replicates=1000):
+    resets = {int(key): value for key, value in data.get('resets', {}).items() if value}
+    report = {'schema_version': 1, 'metadata': _collect_env_metadata(),
+        'pipeline_sha256': lifestyle_pipeline_fingerprint(),
+        'dataset': {'source': source, 'cycle_events': len(data['cycle_revisions']),
+                    'daily_events': len(data['daily_log_revisions']),
+                    'n_users': len({row['user_id'] for row in data['cycle_revisions']}),
+                    'fingerprint': fingerprint(data)},
+        'evaluation': run_lifestyle_ablation(data['cycle_revisions'], data['daily_log_revisions'],
+            data.get('cycle_tracking_events', []), resets, calibration_cutoff=calibration_cutoff,
+            test_cutoff=test_cutoff, data_as_of=data_as_of, bootstrap_replicates=bootstrap_replicates,
+            enrollment=data.get('enrollment'), background_events=data.get('research_background_revisions', [])),
+        'notes': ['Research candidate only; no weights are published and no online prediction changes.',
+                  'All feature groups and shrinkage modes share each protocol/stage test cohort.',
+                  'Cycle and daily events must be known before forecast issuance. Legacy/backfilled forecasts are not reconstructed.',
+                  'Dynamic stages require a timely explicit no-onset confirmation; absence of a log is not confirmation.',
+                  'Median imputation is fitted on training only; missingness and calendar-day coverage remain explicit.',
+                  'Intervals use a separate chronological calibration segment; 90% is a target, not a clinical or IID coverage guarantee.',
+                  'Paired MAE percentile intervals cluster whole users, conditional on fitted models. Exploratory comparisons are unadjusted.',
+                  'Synthetic effects demonstrate a workflow, not medical causality or real accuracy.']}
+    if authorization:
+        if not authorization_is_current(authorization):
+            raise ValueError('Consent changed during evaluation; discard the run and create a new snapshot')
+        report['authorization'] = authorization
+    return report
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sources = parser.add_mutually_exclusive_group(required=True)
     sources.add_argument('--synthetic-only', action='store_true')
-    sources.add_argument('--data-json', type=Path, help='Independently authorized event export, never plain date CSV')
+    sources.add_argument('--data-json', type=Path, help='Signed research snapshot with current in-app consent')
     sources.add_argument('--database', action='store_true')
     parser.add_argument('--acknowledge-authorized-data', action='store_true')
     parser.add_argument('--calibration-cutoff', default='2022-10-01T00:00:00Z', help='Timezone-aware ISO timestamp')
@@ -88,6 +102,7 @@ def main():
     parser.add_argument('--data-as-of', default=None, help='Freeze observed events at this ISO timestamp; defaults to current UTC')
     parser.add_argument('--output-dir', type=Path)
     args = parser.parse_args()
+    authorization = None
     if not args.synthetic_only and not args.acknowledge_authorized_data:
         parser.error('Real data requires independent authorization and --acknowledge-authorized-data')
     if args.synthetic_only:
@@ -95,31 +110,18 @@ def main():
     elif args.data_json:
         if args.data_json.stat().st_size > 100_000_000:
             parser.error('Event export too large')
-        data, source = json.loads(args.data_json.read_text(encoding='utf-8')), 'authorized_event_json'
-        if 'user' in data:
-            data['resets'] = {data['user']['user_id']: data['user'].get('cycle_history_reset_at')}
+        snapshot = json.loads(args.data_json.read_text(encoding='utf-8'))
+        data, source = validate_snapshot(snapshot), 'authorized_event_json'
+        authorization = report_authorization(snapshot)
     else:
-        data, source = read_authorized_database(), 'authorized_database'
+        snapshot = read_authorized_database()
+        data, source = snapshot['data'], 'authorized_database'
+        authorization = report_authorization(snapshot)
     for value in (args.calibration_cutoff, args.test_cutoff, *([args.data_as_of] if args.data_as_of else [])):
         if datetime.fromisoformat(value.replace('Z', '+00:00')).tzinfo is None:
             parser.error('Cutoffs require explicit timezone offsets')
-    resets = {int(key): value for key, value in data.get('resets', {}).items() if value}
-    report = {'schema_version': 1, 'metadata': _collect_env_metadata(),
-        'pipeline_sha256': lifestyle_pipeline_fingerprint(),
-        'dataset': {'source': source, 'cycle_events': len(data['cycle_revisions']),
-                    'daily_events': len(data['daily_log_revisions']),
-                    'n_users': len({row['user_id'] for row in data['cycle_revisions']}),
-                    'fingerprint': hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()},
-        'evaluation': run_lifestyle_ablation(data['cycle_revisions'], data['daily_log_revisions'],
-            data.get('cycle_tracking_events', []), resets, calibration_cutoff=args.calibration_cutoff,
-            test_cutoff=args.test_cutoff, data_as_of=args.data_as_of),
-        'notes': ['Research candidate only; no weights are published and no online prediction changes.',
-                  'All feature groups and shrinkage modes share each protocol/stage test cohort.',
-                  'Cycle and daily events must be known before forecast issuance. Legacy/backfilled forecasts are not reconstructed.',
-                  'Dynamic stages require a timely explicit no-onset confirmation; absence of a log is not confirmation.',
-                  'Median imputation is fitted on training only; missingness and calendar-day coverage remain explicit.',
-                  'Intervals use a separate chronological calibration segment; 90% is a target, not a clinical or IID coverage guarantee.',
-                  'Synthetic effects demonstrate a workflow, not medical causality or real accuracy.']}
+    report = evaluate_data(data, source, calibration_cutoff=args.calibration_cutoff, test_cutoff=args.test_cutoff,
+                           data_as_of=args.data_as_of, authorization=authorization)
     directory = args.output_dir or settings.model_abs_path.parent
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / 'lifestyle_evaluation_report.json'

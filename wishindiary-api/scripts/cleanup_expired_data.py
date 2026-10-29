@@ -107,6 +107,10 @@ def main() -> int:
                             affected_users = [row["user_id"] for row in cur.fetchall()]
                             for user_id in affected_users:
                                 mark_cycle_history_reset(cur, user_id)
+                        elif table == "daily_logs":
+                            cur.execute("SELECT DISTINCT user_id FROM daily_logs WHERE created_at < %s ORDER BY user_id", (cutoff_sql,))
+                            for row in cur.fetchall():
+                                cur.execute("UPDATE users SET research_data_epoch=research_data_epoch+1 WHERE user_id=%s", (row["user_id"],))
                         cur.execute(f"DELETE FROM {table} WHERE {where}", (cutoff_sql,))
                         for user_id in affected_users:
                             recalculate_cycle_lengths(cur, user_id)

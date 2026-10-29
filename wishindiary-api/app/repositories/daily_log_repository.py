@@ -60,7 +60,10 @@ def get_daily_log_by_date(cursor, user_id: int, log_date: date) -> dict | None:
 def delete_daily_log_by_date(cursor, user_id: int, log_date: date) -> int:
     # Revision FK cascades; deleted health information must not survive in history.
     cursor.execute("DELETE FROM daily_logs WHERE user_id=%s AND log_date=%s", (user_id, log_date))
-    return cursor.rowcount
+    affected = cursor.rowcount
+    if affected:
+        cursor.execute("UPDATE users SET research_data_epoch=research_data_epoch+1 WHERE user_id=%s", (user_id,))
+    return affected
 
 
 def get_daily_revisions_as_of(cursor, user_id: int, as_of):

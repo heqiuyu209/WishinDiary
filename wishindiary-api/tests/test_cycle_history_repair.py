@@ -78,3 +78,27 @@ def test_retention_resets_research_history_and_recalculates_remaining_cycle(clie
             assert cursor.fetchone()["cycle_history_reset_at"] is not None
             cursor.execute("SELECT COUNT(*) AS n FROM cycle_revisions WHERE user_id=%s", (user_id,))
             assert cursor.fetchone()["n"] == 1
+
+
+def test_daily_only_retention_invalidates_private_research_snapshot(client, auth_header, monkeypatch):
+    from app.core import database
+    from app.core.research_policy import POLICY_VERSION
+    from app.services.research_dataset_service import read_authorized_database, validate_snapshot
+    from scripts import cleanup_expired_data
+
+    user_id = client.get('/api/v1/auth/session').json()['user_id']
+    assert client.put('/api/v1/research/participation', json={'participate': True,
+        'policy_version': POLICY_VERSION, 'adult_confirmed': True}).status_code == 200
+    assert client.post('/api/v1/daily_log', json={'log_date': '2024-01-01', 'stress_level': 2}).status_code == 200
+    with transaction() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("UPDATE daily_logs SET created_at='2000-01-01' WHERE user_id=%s", (user_id,))
+    snapshot = read_authorized_database()
+    monkeypatch.setattr(cleanup_expired_data, '_connect', database.get_db_connection)
+    monkeypatch.setattr('sys.argv', ['cleanup_expired_data.py', '--days', '365'])
+    assert cleanup_expired_data.main() == 0
+    assert validate_snapshot(snapshot)['daily_log_revisions']
+    monkeypatch.setattr('sys.argv', ['cleanup_expired_data.py', '--apply', '--days', '365'])
+    assert cleanup_expired_data.main() == 0
+    with pytest.raises(ValueError, match='consent changed'):
+        validate_snapshot(snapshot)

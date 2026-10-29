@@ -26,10 +26,11 @@ python scripts/backtest.py --synthetic-only
 
 ```bash
 python scripts/backtest.py --csv /path/to/authorized_cycles.csv
-python scripts/backtest.py --database
 ```
 
 CSV 必须包含 `user_id,start_date,cycle_length,bleeding_days`；ID 为正整数，开始日为真实日历日期，缺失出血天数留空。重复日期或无效日期会报错；不把用户编号、记录或文件路径写入报告。未知周期长度没有评估标签；正数范围外标签保留在评估中，避免只报告容易预测的周期。
+
+应用用户数据库已转为独立自愿参加、UTC 事件与签名快照研究。旧 `--database` 日期表入口及旧数据库来源报告停用，避免绕过授权和补录边界；使用 [研究授权与实验治理](RESEARCH_GOVERNANCE.md) 中的注册、冻结、运行与重放流程。
 
 不能把没有实际日历日期的数据随意构造为日历时间后，宣称获得真实时间验证。本入口与现有训练脚本的 Fehring CSV 格式不同，需要真实日期的标准周期表。
 

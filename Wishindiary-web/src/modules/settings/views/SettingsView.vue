@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useAuthStore } from '../../auth/store';
+import ResearchParticipationPanel from '../../research/components/ResearchParticipationPanel.vue';
 import { extractApiErrorMessage } from '../../../shared/api/httpClient';
 import {
   getNotificationSettingsApi,
@@ -244,5 +245,6 @@ onUnmounted(() => window.clearInterval(cooldownTimer));
         </button>
       </form>
     </template>
+    <ResearchParticipationPanel />
   </section>
 </template>

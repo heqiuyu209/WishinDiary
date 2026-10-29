@@ -18,6 +18,8 @@ from app.features.lifestyle_features import (
     FEATURE_GROUPS, LIFESTYLE_FEATURE_VERSION, build_research_feature_row, utc_instant,
 )
 from app.ml.prediction_scope import history_is_supported
+from app.features.research_background import background_as_of, background_group
+from app.ml.paired_uncertainty import PRIMARY_COMPARISON, paired_mae_interval
 
 STAGES = (0, 7, 14, 21)
 PARAMETERS = {'n_estimators': 80, 'max_depth': 8, 'random_state': 42}
@@ -57,15 +59,18 @@ class LifestyleCase:
     actual_remaining: float
     history: pd.DataFrame
     features: dict
+    background_group: str = 'unknown'
 
     @property
     def key(self):
         return f'{self.user_id}/{self.cycle_id}/{self.anchor}/{self.elapsed}/{self.issued_at.isoformat()}'
 
 
-def build_lifestyle_cases(cycle_events, daily_events, tracking_events=(), resets=None, *, dataset_as_of=None):
+def build_lifestyle_cases(cycle_events, daily_events, tracking_events=(), resets=None, *, dataset_as_of=None,
+                          enrollment=None, background_events=()):
     """No created_at guesses or synthetic dates for real backfilled observations."""
     resets = resets or {}
+    enrollment = {int(key): utc_instant(value) for key, value in enrollment.items()} if enrollment is not None else None
     end = utc_instant(dataset_as_of) if dataset_as_of else datetime.max.replace(tzinfo=timezone.utc)
     final = cycle_rows_as_of(cycle_events, end)
     tracking = [{**row, 'known_at': utc_instant(row['known_at']),
@@ -74,7 +79,7 @@ def build_lifestyle_cases(cycle_events, daily_events, tracking_events=(), resets
                 if utc_instant(row['known_at']) < end]
     counts = {key: 0 for key in ('candidate_intervals', 'late_or_unknown_issuance', 'edited_anchor',
                                 'purged_history', 'unsupported_history', 'missing_history', 'confirmed_missed',
-                                'dynamic_without_timely_confirmation')}
+                                'dynamic_without_timely_confirmation', 'before_enrollment', 'ineligible_age')}
     cases = []
     for user_id in sorted({int(row['user_id']) for row in final}):
         rows = [row for row in final if int(row['user_id']) == user_id]
@@ -126,6 +131,13 @@ def build_lifestyle_cases(cycle_events, daily_events, tracking_events=(), resets
                     if not issued <= as_of < actual_day or label_known <= as_of:
                         continue
                 reset = resets.get(user_id)
+                if enrollment is not None and (user_id not in enrollment or as_of < enrollment[user_id]):
+                    counts['before_enrollment'] += 1
+                    continue
+                context = background_group(background_as_of(background_events, user_id, as_of))
+                if context == 'under18':
+                    counts['ineligible_age'] += 1
+                    continue
                 if reset and as_of <= utc_instant(reset):
                     counts['purged_history'] += 1
                     continue
@@ -151,7 +163,7 @@ def build_lifestyle_cases(cycle_events, daily_events, tracking_events=(), resets
                 feature = build_research_feature_row(clean, user_daily, user_id=user_id,
                     anchor=current['start_date'], as_of=as_of, timezone_name=tz, elapsed_days=stage)
                 cases.append(LifestyleCase(user_id, int(current['cycle_id']), current['start_date'], as_of,
-                    label_known, stage, float((following['start_date'] - current['start_date']).days - stage), clean, feature))
+                    label_known, stage, float((following['start_date'] - current['start_date']).days - stage), clean, feature, context))
     return sorted(cases, key=lambda case: (case.issued_at, case.user_id, case.elapsed)), counts
 
 
@@ -193,18 +205,20 @@ def _scores(rows):
 
 
 def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), resets=None, *, calibration_cutoff,
-                           test_cutoff, n_splits=3, coverage=0.9, data_as_of=None):
+                           test_cutoff, n_splits=3, coverage=0.9, data_as_of=None, enrollment=None, background_events=(),
+                           bootstrap_replicates=1000, seed=42):
     calibration_cutoff, test_cutoff = utc_instant(calibration_cutoff), utc_instant(test_cutoff)
     if calibration_cutoff >= test_cutoff or not 2 <= n_splits <= 10 or not 0 < coverage < 1:
         raise ValueError('Invalid research cutoffs, folds or coverage')
     data_as_of = utc_instant(data_as_of or datetime.now(timezone.utc))
     if data_as_of <= test_cutoff:
         raise ValueError('Data snapshot must follow the test cutoff')
-    cases, exclusions = build_lifestyle_cases(cycle_events, daily_events, tracking_events, resets, dataset_as_of=data_as_of)
+    options = {'enrollment': enrollment, 'background_events': background_events}
+    cases, exclusions = build_lifestyle_cases(cycle_events, daily_events, tracking_events, resets, dataset_as_of=data_as_of, **options)
     # Build labels/cohorts as actually known at each fit cutoff. Future start
     # edits or missed-tracking annotations must not remove/rewrite old fits.
-    train_snapshot, _ = build_lifestyle_cases(cycle_events, daily_events, tracking_events, resets, dataset_as_of=calibration_cutoff)
-    calibration_snapshot, _ = build_lifestyle_cases(cycle_events, daily_events, tracking_events, resets, dataset_as_of=test_cutoff)
+    train_snapshot, _ = build_lifestyle_cases(cycle_events, daily_events, tracking_events, resets, dataset_as_of=calibration_cutoff, **options)
+    calibration_snapshot, _ = build_lifestyle_cases(cycle_events, daily_events, tracking_events, resets, dataset_as_of=test_cutoff, **options)
     if not cases:
         raise ValueError('No timely as-recorded cases with sufficient history; backfilled dates cannot reconstruct past forecasts')
     probability = Fraction(str(coverage))
@@ -245,7 +259,8 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
                     rank = math.ceil((len(errors) + 1) * probability)
                     radius = errors[rank - 1] if rank <= len(errors) else None
                     rows = records.setdefault(method, [])
-                    rows.extend({'point': float(point), 'actual': case.actual_remaining, 'radius': radius,
+                    rows.extend({'point': float(point), 'actual': case.actual_remaining, 'radius': radius, 'background': case.background_group,
+                                 'user_id': case.user_id, 'case_key': case.key,
                                  'coverage': np.mean([case.features[f'{group}_coverage'] for group in ('sleep', 'stress', 'exercise')])}
                                 for point, case in zip(points, test))
                 for group in FEATURE_GROUPS:
@@ -271,6 +286,9 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
                 if method.endswith(('_direct', '_shrinkage')):
                     baseline = 'base_' + method.rsplit('_', 1)[1]
                     metric['delta_mae_vs_base'] = round(metric['mae'] - metrics[baseline]['mae'], 4)
+                    if method != baseline:
+                        metric['delta_mae_ci95'] = paired_mae_interval(records[method], records[baseline],
+                            replicates=bootstrap_replicates, seed=seed)
             protocols[name] = {'samples': len(cohort), 'candidate_samples': len(existing) if name == 'existing_users' else len(targets),
                 'excluded_unseen_cases': len(targets) - len(existing) if name == 'existing_users' else 0,
                 'skipped_empty_folds': skipped, 'fits': fitted,
@@ -278,9 +296,14 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
                 'metrics': metrics, 'coverage_groups': {
                     bucket: {method: _scores([row for row in rows if include(row['coverage'])]) for method, rows in records.items()}
                     for bucket, include in [('none', lambda value: value == 0), ('sparse', lambda value: 0 < value < 0.5),
-                                            ('covered', lambda value: value >= 0.5)]}}
+                                            ('covered', lambda value: value >= 0.5)]},
+                'background_groups': {group: {method: _scores([row for row in rows if row['background'] == group]) for method, rows in records.items()}
+                    for group in ('unknown', 'explicit_none', 'reported_context')}}
         output[str(stage)] = {'target': 'cycle_length_days' if not stage else 'remaining_wait_days', 'protocols': protocols}
     return {'feature_version': LIFESTYLE_FEATURE_VERSION, 'data_as_of': data_as_of.isoformat(), 'calibration_cutoff': calibration_cutoff.isoformat(),
             'test_cutoff': test_cutoff.isoformat(), 'target_coverage_pct': coverage * 100,
             'parameters': {'rf': PARAMETERS, 'window_days': 28, 'shrinkage_k': 4, 'stages': list(STAGES)},
+            'primary_comparison': PRIMARY_COMPARISON,
+            'uncertainty': {'method': 'paired_user_cluster_percentile', 'replicates': bootstrap_replicates, 'seed': seed,
+                            'conditional_on_fitted_models': True, 'exploratory_comparisons_unadjusted': True},
             'eligible_cases': len(cases), 'exclusions': exclusions, 'stages': output}

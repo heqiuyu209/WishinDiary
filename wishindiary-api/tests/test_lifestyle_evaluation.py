@@ -68,6 +68,8 @@ def test_same_cohort_all_variants_time_user_split_and_dynamic_confirmation(paire
             assert protocol['samples'] > 0
             assert set(protocol['metrics']) == set(METHODS)
             assert all(metric['samples'] == protocol['samples'] for metric in protocol['metrics'].values())
+            ci = protocol['metrics']['sleep_stress_exercise_direct']['delta_mae_ci95']
+            assert ci['n_users'] == 3 and not ci['available'] and 'lower' not in ci
             for fit in protocol['fits']:
                 assert fit['training_labels_available_through'] <= paired_report['calibration_cutoff']
                 assert fit['calibration_labels_available_through'] <= paired_report['test_cutoff']
@@ -88,6 +90,7 @@ def test_report_reader_strips_individual_data_and_rejects_mismatched_cohorts(pai
     sanitized = read_lifestyle_report()
     assert sanitized['available'] and 'private_notes' not in sanitized
     assert sanitized['pipeline_matches_report']
+    assert sanitized['stages']['0']['protocols']['unseen_users']['metrics']['sleep_direct']['delta_mae_ci95']['n_users'] == 3
     raw['evaluation'] = copy.deepcopy(paired_report)
     raw['evaluation']['stages']['0']['protocols']['unseen_users']['metrics']['base_direct']['samples'] += 1
     path.write_text(json.dumps(raw), encoding='utf-8')

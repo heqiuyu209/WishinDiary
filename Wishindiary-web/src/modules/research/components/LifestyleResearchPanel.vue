@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { LifestyleCoverage, LifestyleEvaluation } from '../../../types/api';
+import type { LifestyleCoverage, LifestyleEvaluation, LifestyleScore } from '../../../types/api';
 const props = defineProps<{ evaluation?: LifestyleEvaluation; coverage?: LifestyleCoverage }>();
 const stage = ref('0');
 const protocol = ref('unseen_users');
@@ -17,6 +17,26 @@ const rows = computed(() => [
 ]);
 const metric = (value: number | undefined, suffix = '') =>
   value == null ? '不可用' : `${value.toFixed(2)}${suffix}`;
+const pairedInterval = (score?: LifestyleScore) => {
+  const ci = score?.delta_mae_ci95;
+  if (!ci) return '未计算';
+  if (!ci.available) return `用户不足（${ci.n_users}/${ci.min_users}）`;
+  return `[${metric(ci.lower)}, ${metric(ci.upper)}]`;
+};
+const isPrimary = (method: string) => {
+  const primary = props.evaluation?.primary_comparison;
+  return (
+    primary?.stage === stage.value &&
+    primary.protocol === protocol.value &&
+    primary.method === method
+  );
+};
+const primaryScore = computed(() => {
+  const primary = props.evaluation?.primary_comparison;
+  return primary && isPrimary(primary.method) && primary.method.endsWith(`_${mode.value}`)
+    ? selected.value?.metrics[primary.method]
+    : undefined;
+});
 const coverageRows = computed(
   () =>
     [
@@ -101,27 +121,43 @@ const coverageRows = computed(
       <p v-if="stage !== '0'" class="text-xs text-indigo-700">
         只评估在该日及时确认尚未开始的用户。未打卡不等于尚未开始；不同预测时点的人群不同，不能直接比较误差大小。
       </p>
+      <p
+        v-if="primaryScore"
+        class="rounded-xl bg-rose-50 p-3 text-xs leading-relaxed text-rose-800"
+      >
+        固定主对照：ΔMAE {{ metric(primaryScore.delta_mae_vs_base, ' 天') }}；配对 95% 区间
+        {{ pairedInterval(primaryScore) }}。测试用户
+        {{ primaryScore.delta_mae_ci95?.n_users ?? '未知' }} 位。
+      </p>
+      <p v-if="selected?.samples" class="text-xs text-gray-500 sm:hidden">
+        横向滑动表格查看区间与覆盖率。
+      </p>
       <p v-if="!selected?.samples" class="text-sm text-gray-500">
         该时点或人群暂无可用共同测试样本。
       </p>
       <div v-else class="overflow-x-auto">
-        <table class="w-full min-w-[600px] text-xs text-left">
+        <table class="w-full min-w-[780px] text-xs text-left">
           <thead class="text-gray-500">
             <tr>
               <th class="p-2">模型</th>
               <th>MAE（天）</th>
               <th>±2 天命中</th>
               <th>ΔMAE</th>
+              <th>配对 95% 区间</th>
               <th>校准覆盖</th>
               <th>区间宽度</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="row in rows" :key="row.key" class="border-t border-gray-100">
-              <td class="p-2">{{ row.label }}</td>
+              <td class="p-2">
+                {{ row.label }}
+                <span v-if="isPrimary(row.key)" class="block text-rose-700">固定主对照</span>
+              </td>
               <td>{{ metric(selected.metrics[row.key]?.mae) }}</td>
               <td>{{ metric(selected.metrics[row.key]?.hit_rate_within_2d, '%') }}</td>
               <td>{{ metric(selected.metrics[row.key]?.delta_mae_vs_base) }}</td>
+              <td>{{ pairedInterval(selected.metrics[row.key]) }}</td>
               <td>
                 {{ metric(selected.metrics[row.key]?.coverage_pct, '%') }}（{{
                   selected.metrics[row.key]?.interval_samples ?? 0
@@ -132,6 +168,10 @@ const coverageRows = computed(
           </tbody>
         </table>
       </div>
+      <p class="text-xs leading-relaxed text-gray-500">
+        配对区间对整位用户重采样，条件于本次已拟合模型；少于 10
+        位测试用户不计算。固定主对照是否为前瞻方案以实验登记为准，其余比较为探索且未做多重比较校正。跨过零表示当前数据仍不能明确区分误差方向。
+      </p>
       <p class="text-xs text-gray-500">
         校准目标
         {{
@@ -157,6 +197,26 @@ const coverageRows = computed(
           </p>
         </div>
       </div>
+      <div v-if="selected?.background_groups" class="grid grid-cols-1 gap-3 text-xs md:grid-cols-3">
+        <div
+          v-for="[key, label] in [
+            ['unknown', '背景未知'],
+            ['explicit_none', '各项背景明确否定'],
+            ['reported_context', '报告至少一种背景'],
+          ]"
+          :key="key"
+          class="rounded-xl bg-rose-50 p-3"
+        >
+          <p class="font-semibold">{{ label }}</p>
+          <p v-for="row in rows.slice(0, 4)" :key="row.key" class="mt-1">
+            {{ row.label }}：{{ selected.background_groups[key!]?.[row.key]?.samples ?? 0 }} 条，MAE
+            {{ metric(selected.background_groups[key!]?.[row.key]?.mae) }}
+          </p>
+        </div>
+      </div>
+      <p v-if="selected?.background_groups" class="text-xs leading-relaxed text-gray-500">
+        医学背景使用预测前已知版本，只作分组误差描述；不同背景并不代表同一种机制，小组结果不能解释为原因。
+      </p>
       <p class="text-xs text-gray-500">
         事后补录或未知签发
         {{ evaluation.exclusions?.late_or_unknown_issuance ?? 0 }} 个间隔；缺少及时未开始确认

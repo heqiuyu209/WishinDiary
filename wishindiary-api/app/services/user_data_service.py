@@ -21,6 +21,8 @@ from app.core.errors import AppError
 logger = logging.getLogger(__name__)
 
 _EXPORT_TABLES = (
+    ("research_consent_events", "event_id"),
+    ("research_background_revisions", "revision_id"),
     ("cycles", "cycle_id"),
     ("cycle_revisions", "revision_id"),
     ("cycle_tracking_events", "event_id"),

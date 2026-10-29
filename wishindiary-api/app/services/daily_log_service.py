@@ -80,6 +80,9 @@ class DailyLogService:
         try:
             with transaction() as connection:
                 with connection.cursor() as cursor:
+                    cursor.execute("SELECT user_id FROM users WHERE user_id=%s FOR UPDATE", (user_id,))
+                    if not cursor.fetchone():
+                        raise AppError(404, "not_found", "账号不存在")
                     affected = delete_daily_log_by_date(cursor, user_id, log_date)
         except AppError:
             raise
