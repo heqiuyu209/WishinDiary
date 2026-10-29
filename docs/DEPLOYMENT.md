@@ -79,6 +79,35 @@ docker compose up -d --build backend frontend
 >   可显示真实客户端 IP。切勿改为 `--forwarded-allow-ips=*`
 >   （会信任任意来源伪造的 IP）。
 
+### 使用 GitHub 发布的镜像
+
+`.github/workflows/docker-images.yml` 会构建前后端镜像，在临时 MySQL 中验证
+数据库迁移、网页、API 代理和研究流水线指纹，再发布到 GitHub Container Registry：
+
+- `ghcr.io/heqiuyu209/wishindiary-backend`
+- `ghcr.io/heqiuyu209/wishindiary-frontend`
+
+当前功能分支使用 `codex-personal-cycle-research` 标签；每次发布还有
+`sha-<完整提交号>` 标签。只有默认分支更新 `latest`。建议部署时让前后端使用
+同一个提交标签，以便记录版本和回滚。
+
+镜像中的演示模型由 GitHub 使用纯合成数据生成。Actions 的发布摘要提供
+`MODEL_SHA256`；使用该内置模型时，将其写入部署 `.env`。
+如果已使用自行训练的模型，应继续挂载该模型并保留对应的哈希。
+
+在根目录 `.env` 中设置 `IMAGE_TAG=sha-<完整提交号>`，保留数据库密码和密钥。
+若镜像包为私有，先使用具有 `read:packages` 权限的 GitHub 凭据登录 `ghcr.io`。
+完成数据库备份后执行：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull backend frontend
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d --no-build backend frontend
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml ps
+```
+
+需要提醒服务时，该服务也使用相同的后端镜像和 `IMAGE_TAG`。
+
 ### 2. 日志与故障排查
 
 ```bash

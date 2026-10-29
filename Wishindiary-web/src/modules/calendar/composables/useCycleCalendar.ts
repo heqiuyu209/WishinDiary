@@ -1,4 +1,4 @@
-import { computed, onMounted, reactive, ref, watch, type Ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch, type Ref } from 'vue';
 import type { AxiosResponse } from 'axios';
 import {
   confirmTrackingApi,
@@ -9,6 +9,7 @@ import {
   saveDailyLogApi,
 } from '../api';
 import { getPredictionApi, getStatsApi } from '../../dashboard/api';
+import { getNotificationSettingsApi } from '../../settings/api';
 import { extractApiErrorMessage } from '../../../shared/api/httpClient';
 import {
   addDays,
@@ -109,7 +110,15 @@ interface CalendarAttr {
 }
 
 export function useCycleCalendar() {
-  const selectedDate: Ref<Date> = ref(new Date());
+  const selectedDate: Ref<Date> = ref(today('Asia/Shanghai'));
+  const calendarTimezone = ref<string | null>(null);
+  const calendarTimeLoading = ref(false);
+  const calendarTimeError = ref('');
+  const currentTime = ref(new Date());
+  const calendarToday = computed(() =>
+    today(calendarTimezone.value || 'Asia/Shanghai', currentTime.value),
+  );
+  const calendarTimeReady = computed(() => calendarTimezone.value !== null);
   const prediction = ref<PredictionResponseData | null>(null);
   const predictionMessage = ref('');
   const predictionWarnings = ref<string[]>([]);
@@ -125,10 +134,13 @@ export function useCycleCalendar() {
   const dailyLogLoadError = ref(false);
   const dailyLogLoadedDate = ref<string | null>(null);
 
-  const isSelectedFuture = computed(() => isAfter(toLocalDate(selectedDate.value), today()));
+  const isSelectedFuture = computed(() =>
+    isAfter(toLocalDate(selectedDate.value), calendarToday.value),
+  );
+  const canRecordSelectedDate = computed(() => calendarTimeReady.value && !isSelectedFuture.value);
   const canSaveDailyLog = computed(
     () =>
-      !isSelectedFuture.value &&
+      canRecordSelectedDate.value &&
       !dailyLogLoading.value &&
       !dailyLogSaving.value &&
       dailyLogLoadedDate.value === formatDate(selectedDate.value),
@@ -138,7 +150,7 @@ export function useCycleCalendar() {
     const fertileEnd = toLocalDate(prediction.value?.fertile_window_end);
     const latestForecast = [forecastStart, fertileEnd]
       .filter((value): value is Date => !!value)
-      .reduce((latest, value) => (isAfter(value, latest) ? value : latest), today());
+      .reduce((latest, value) => (isAfter(value, latest) ? value : latest), calendarToday.value);
     return addDays(latestForecast, 35);
   });
 
@@ -170,14 +182,19 @@ export function useCycleCalendar() {
   const selectedClosedCycle = computed(() =>
     findSelectedClosedCycle(selectedDate.value, cycles.value),
   );
-  const selectedUnknownCycle = computed(() => {
+  const selectedTrackingCycle = computed(() => {
     const target = formatDate(selectedDate.value);
     const preceding = [...cycles.value]
       .filter((cycle) => cycle.start_date <= target)
       .sort((a, b) => a.start_date.localeCompare(b.start_date))
       .at(-1);
-    return preceding && !preceding.end_date ? preceding : null;
+    return preceding || null;
   });
+  const selectedUnknownCycle = computed(() =>
+    selectedTrackingCycle.value && !selectedTrackingCycle.value.end_date
+      ? selectedTrackingCycle.value
+      : null,
+  );
   const endTargetCycle = computed(() => selectedUnknownCycle.value || openCycle.value);
   const selectedCycle = computed(() => selectedClosedCycle.value || endTargetCycle.value);
   const estimatedBleedingDays = computed(() => {
@@ -316,6 +333,7 @@ export function useCycleCalendar() {
   };
 
   const markStart = async () => {
+    if (!canRecordSelectedDate.value) return;
     try {
       const res = await logStartApi({ start_date: formatDate(selectedDate.value) });
       applySuccess(res, '标记经期开始');
@@ -325,6 +343,7 @@ export function useCycleCalendar() {
   };
 
   const markEnd = async () => {
+    if (!canRecordSelectedDate.value) return;
     try {
       const res = await logEndApi({
         end_date: formatDate(manualEndDate.value || selectedDate.value),
@@ -413,6 +432,32 @@ export function useCycleCalendar() {
   };
   const reloadDailyLog = () => loadDailyLogForDate(selectedDate.value);
 
+  const reloadCalendarTime = async () => {
+    if (calendarTimeLoading.value) return;
+    calendarTimeLoading.value = true;
+    calendarTimeError.value = '';
+    try {
+      const response = await getNotificationSettingsApi();
+      if (!response.data.timezone) throw new Error('账户时区为空');
+      currentTime.value = new Date();
+      const previousToday = formatDate(calendarToday.value);
+      const accountToday = today(response.data.timezone, currentTime.value);
+      calendarTimezone.value = response.data.timezone;
+      if (
+        formatDate(selectedDate.value) === previousToday &&
+        formatDate(accountToday) !== previousToday
+      ) {
+        selectedDate.value = accountToday;
+      } else {
+        await reloadDailyLog();
+      }
+    } catch (err) {
+      calendarTimeError.value = extractApiErrorMessage(err, '账户日期加载失败，请重试');
+    } finally {
+      calendarTimeLoading.value = false;
+    }
+  };
+
   const clearCycle = async (
     cycleId: number,
     confirmText = '确定清空该区间吗？清空后可重新标记。',
@@ -432,11 +477,12 @@ export function useCycleCalendar() {
 
   const trackingSaving = ref(false);
   const confirmTracking = async (kind: TrackingKind) => {
-    if (!selectedCycle.value || trackingSaving.value) return;
+    if (!selectedTrackingCycle.value || trackingSaving.value || !canRecordSelectedDate.value)
+      return;
     trackingSaving.value = true;
     try {
       const response = await confirmTrackingApi(
-        selectedCycle.value.cycle_id,
+        selectedTrackingCycle.value.cycle_id,
         kind,
         formatDate(selectedDate.value),
       );
@@ -502,13 +548,24 @@ export function useCycleCalendar() {
     }
   });
 
+  let calendarClock: number | undefined;
   onMounted(() => {
+    calendarClock = window.setInterval(() => {
+      currentTime.value = new Date();
+    }, 30_000);
     void fetchData();
-    void loadDailyLogForDate(selectedDate.value);
+    void reloadCalendarTime();
   });
+  onUnmounted(() => window.clearInterval(calendarClock));
 
   return {
     selectedDate,
+    calendarTimezone,
+    calendarToday,
+    calendarTimeReady,
+    calendarTimeLoading,
+    calendarTimeError,
+    reloadCalendarTime,
     prediction,
     predictionMessage,
     predictionWarnings,
@@ -526,6 +583,7 @@ export function useCycleCalendar() {
     endTargetCycle,
     selectedClosedCycle,
     selectedCycle,
+    selectedTrackingCycle,
     estimatedBleedingDays,
     selectedPreviewMode,
     selectedRangeText,

@@ -9,6 +9,17 @@ PRIMARY_COMPARISON = {'stage': '0', 'protocol': 'unseen_users',
 
 
 def paired_mae_interval(candidate, baseline, *, replicates=1000, seed=42):
+    return _paired_interval(candidate, baseline, replicates=replicates, seed=seed)
+
+
+def paired_brier_interval(candidate, baseline, *, replicates=1000, seed=42):
+    for row in (*candidate, *baseline):
+        if row['actual'] not in (0, 1) or not 0 <= row['point'] <= 1:
+            raise ValueError('Invalid paired probability')
+    return _paired_interval(candidate, baseline, replicates=replicates, seed=seed, squared=True)
+
+
+def _paired_interval(candidate, baseline, *, replicates, seed, squared=False):
     if type(replicates) is not int or not 200 <= replicates <= 10_000 or type(seed) is not int or not 0 <= seed < 2**32:
         raise ValueError('Invalid bootstrap parameters')
     def indexed(rows):
@@ -28,7 +39,8 @@ def paired_mae_interval(candidate, baseline, *, replicates=1000, seed=42):
         other = right[key]
         if row['user_id'] != other['user_id'] or row['actual'] != other['actual']:
             raise ValueError('Paired user or outcome differs')
-        diff = abs(row['point'] - row['actual']) - abs(other['point'] - other['actual'])
+        power = 2 if squared else 1
+        diff = abs(row['point'] - row['actual']) ** power - abs(other['point'] - other['actual']) ** power
         total, count = clusters.get(row['user_id'], (0.0, 0))
         clusters[row['user_id']] = (total + diff, count + 1)
     result = {'available': len(clusters) >= MIN_USERS, 'n_users': len(clusters), 'samples': len(left),

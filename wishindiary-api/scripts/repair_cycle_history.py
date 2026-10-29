@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.database import transaction
+from app.core.private_files import open_private_text
 from app.repositories.cycle_research_repository import record_cycle_revisions
 
 
@@ -64,8 +65,7 @@ def repair_history(*, apply: bool = False, backup: Path | None = None) -> dict:
                     raise ValueError("Backup contains private dates; choose a path outside the repository")
                 backup.parent.mkdir(parents=True, exist_ok=True)
                 # Exclusive creation prevents overwriting a previous recovery copy.
-                fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                with open_private_text(backup) as handle:
                     json.dump(repairs, handle, ensure_ascii=False, indent=2, default=str)
                     handle.flush()
                     os.fsync(handle.fileno())

@@ -59,4 +59,19 @@ describe('shared/utils/date', () => {
     expect(result.getHours()).toBe(0);
     expect(formatDate(result)).toBe(formatDate(new Date()));
   });
+
+  it('同一 UTC 时刻按指定账户时区提取日期，不使用设备日历日', () => {
+    const instant = new Date('2026-10-06T16:30:00Z');
+    expect(formatDate(today('Asia/Shanghai', instant))).toBe('2026-10-07');
+    expect(formatDate(today('America/Los_Angeles', instant))).toBe('2026-10-06');
+    expect(today('America/Los_Angeles', instant).getHours()).toBe(0);
+    expect(() => today('invalid/timezone', instant)).toThrow(RangeError);
+  });
+
+  it('账户时区遵循夏令时并正确跨年', () => {
+    expect(formatDate(today('America/Los_Angeles', new Date('2026-07-01T07:30:00Z')))).toBe(
+      '2026-07-01',
+    );
+    expect(formatDate(today('Asia/Shanghai', new Date('2026-12-31T16:30:00Z')))).toBe('2027-01-01');
+  });
 });

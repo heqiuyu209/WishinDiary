@@ -8,10 +8,13 @@ import re
 from uuid import uuid4
 
 from app.core.config import settings
+from app.core.private_files import open_private_text
 from app.features.lifestyle_features import LIFESTYLE_FEATURE_VERSION, utc_instant
 from app.ml.lifestyle_report import lifestyle_pipeline_fingerprint
 from app.ml.paired_uncertainty import PRIMARY_COMPARISON
 from app.ml.lifestyle_evaluation import PARAMETERS
+from app.ml.personal_history import CONDITIONAL_PARAMETERS, PERSONALIZATION_PARAMETERS
+from app.ml.tracking_probability import TRACKING_PARAMETERS, TRACKING_VERSION
 from app.services.research_dataset_service import (
     authorization_is_current, fingerprint, read_authorized_database, report_authorization, validate_snapshot,
 )
@@ -39,7 +42,7 @@ def read_json(path, max_bytes=1_000_000):
 
 def write_exclusive(path, value):
     payload = json.dumps(value, sort_keys=True, default=str, ensure_ascii=False, indent=2, allow_nan=False)
-    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as file:
+    with open_private_text(path) as file:
         file.write(payload)
 
 
@@ -63,7 +66,11 @@ def register_protocol(*, calibration_cutoff, test_cutoff, data_as_of, bootstrap_
         'primary_comparison': PRIMARY_COMPARISON, 'bootstrap_replicates': bootstrap_replicates,
         'bootstrap_seed': 42, 'rf_seed': 42, 'n_splits': 3, 'target_coverage': 0.9,
         'rf_parameters': dict(PARAMETERS),
-        'synthetic_users': synthetic_users, 'synthetic_cycles': 22, 'environment': _collect_env_metadata()}
+        'personalization_parameters': PERSONALIZATION_PARAMETERS,
+        'conditional_history_parameters': CONDITIONAL_PARAMETERS,
+        'tracking_version': TRACKING_VERSION, 'tracking_parameters': TRACKING_PARAMETERS,
+        'synthetic_users': synthetic_users, 'synthetic_cycles': 22, 'synthetic_tracking_scenarios': True,
+        'environment': _collect_env_metadata()}
     path = run_directory(run_id)
     if path.parent.exists() and sum(1 for _ in path.parent.iterdir()) >= 1000:
         raise ValueError('Local experiment registry is full; archive completed runs privately')
@@ -89,6 +96,12 @@ def read_protocol(run_id, *, require_environment=False):
             raise ValueError('Dependency versions changed; restore the registered environment or register a new plan')
         if protocol['rf_parameters'] != PARAMETERS:
             raise ValueError('Estimator parameters changed; register a new plan')
+        if protocol.get('personalization_parameters') != PERSONALIZATION_PARAMETERS:
+            raise ValueError('Personalization parameters changed; register a new plan')
+        if protocol.get('conditional_history_parameters') != CONDITIONAL_PARAMETERS:
+            raise ValueError('Conditional history parameters changed; register a new plan')
+        if protocol.get('tracking_version') != TRACKING_VERSION or protocol.get('tracking_parameters') != TRACKING_PARAMETERS:
+            raise ValueError('Tracking probability parameters changed; register a new plan')
     return protocol, digest
 
 
@@ -98,7 +111,8 @@ def freeze_dataset(run_id, *, synthetic_only=False):
     if utc_instant(protocol['data_as_of']) > datetime.now(timezone.utc):
         raise ValueError('Planned observation cutoff has not been reached')
     if synthetic_only:
-        data = synthetic_event_data(protocol['synthetic_users'], protocol['synthetic_cycles'])
+        data = synthetic_event_data(protocol['synthetic_users'], protocol['synthetic_cycles'],
+                                    tracking_scenarios=protocol.get('synthetic_tracking_scenarios', False))
         snapshot = {'schema_version': 1, 'source': 'synthetic', 'data': data, 'dataset_sha256': fingerprint(data)}
     else:
         snapshot = {**read_authorized_database(), 'source': 'authorized_database'}
@@ -112,7 +126,8 @@ def read_dataset(run_id, protocol):
     if fingerprint(snapshot['data']) != snapshot['dataset_sha256']:
         raise ValueError('Frozen dataset changed')
     if snapshot['source'] == 'synthetic':
-        expected = synthetic_event_data(protocol['synthetic_users'], protocol['synthetic_cycles'])
+        expected = synthetic_event_data(protocol['synthetic_users'], protocol['synthetic_cycles'],
+                                        tracking_scenarios=protocol.get('synthetic_tracking_scenarios', False))
         if snapshot['dataset_sha256'] != fingerprint(expected):
             raise ValueError('Synthetic snapshot does not match the registered fixture')
         return snapshot['data'], 'synthetic', None

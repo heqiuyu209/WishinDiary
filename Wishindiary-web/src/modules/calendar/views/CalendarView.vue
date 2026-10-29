@@ -9,6 +9,11 @@ import DailyHealthForm from '../components/DailyHealthForm.vue';
 
 const {
   selectedDate,
+  calendarTimezone,
+  calendarTimeReady,
+  calendarTimeLoading,
+  calendarTimeError,
+  reloadCalendarTime,
   prediction,
   predictionMessage,
   predictionWarnings,
@@ -25,6 +30,7 @@ const {
   endTargetCycle,
   selectedClosedCycle,
   selectedCycle,
+  selectedTrackingCycle,
   estimatedBleedingDays,
   selectedPreviewMode,
   selectedRangeText,
@@ -84,7 +90,17 @@ const {
           class="border-0 shadow-none !font-sans"
         />
 
+        <p v-if="calendarTimeReady" class="mt-3 text-xs text-gray-500">
+          日期按账户时区 {{ calendarTimezone }} 计算
+        </p>
+        <p v-else role="status" class="mt-3 text-xs text-gray-500">
+          {{ calendarTimeLoading ? '正在加载账户日期…' : calendarTimeError }}
+          <button v-if="!calendarTimeLoading" class="ml-2 underline" @click="reloadCalendarTime">
+            重新加载
+          </button>
+        </p>
         <CycleRangePanel
+          v-if="calendarTimeReady"
           :selected-date-text="formatDate(selectedDate)"
           :is-selected-future="isSelectedFuture"
           :can-confirm-end="canConfirmEnd"
@@ -99,23 +115,26 @@ const {
           @mark-end="markEnd"
           @clear="clearSelectedCycle"
         />
-        <div v-if="selectedCycle" class="mt-4 w-full rounded-2xl bg-slate-50 p-4 text-xs space-y-2">
-          <p class="font-semibold">核对开始日 {{ selectedCycle.start_date }} 的记录</p>
+        <div
+          v-if="calendarTimeReady && selectedTrackingCycle"
+          class="mt-4 w-full rounded-2xl bg-slate-50 p-4 text-xs space-y-2"
+        >
+          <p class="font-semibold">核对开始日 {{ selectedTrackingCycle.start_date }} 的记录</p>
           <p class="text-gray-500">
             确认用于记录质量与离线研究，不会自动补造日期或修改线上预测。选“漏记”后请按实际日期补录。
           </p>
-          <p v-if="selectedCycle.tracking_kind" class="text-gray-500">
+          <p v-if="selectedTrackingCycle.tracking_kind" class="text-gray-500">
             最近核对：{{
               {
                 unknown: '不确定',
                 missed_tracking: '有漏记',
                 true_long_interval: '真实间隔',
                 no_onset: '截至确认日尚未开始下次经期',
-              }[selectedCycle.tracking_kind]
-            }}（{{ selectedCycle.tracking_as_of_date }}）
+              }[selectedTrackingCycle.tracking_kind]
+            }}（{{ selectedTrackingCycle.tracking_as_of_date }}）
           </p>
           <div class="flex flex-wrap gap-2">
-            <template v-if="selectedCycle.cycle_length != null">
+            <template v-if="selectedTrackingCycle.cycle_length != null">
               <button
                 :disabled="trackingSaving || isSelectedFuture"
                 class="border rounded-lg p-2"

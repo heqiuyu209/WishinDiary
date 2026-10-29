@@ -1,4 +1,10 @@
 from pathlib import Path
+import fnmatch
+import json
+import os
+import shlex
+import shutil
+import subprocess
 
 import pytest
 import pymysql
@@ -16,6 +22,76 @@ TEST_DB_NAME = "wishindiary_test_db"
 # wishindiary-api 项目根目录（alembic.ini 所在目录）
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
+
+
+@pytest.fixture
+def docker_application_layout(tmp_path):
+    """Stage app/scripts from actual COPY rules and honor their context exclusions."""
+    layout = tmp_path / 'image'
+    patterns = [line.strip() for line in (PROJECT_ROOT / '.dockerignore').read_text().splitlines()
+                if line.strip() and not line.startswith('#')]
+
+    def included(source):
+        relative = source.relative_to(PROJECT_ROOT).as_posix()
+        allowed = True
+        for pattern in patterns:
+            negate = pattern.startswith('!')
+            if fnmatch.fnmatchcase(relative, pattern.lstrip('!')):
+                allowed = negate
+        return allowed
+
+    for line in (PROJECT_ROOT / 'Dockerfile').read_text().splitlines():
+        if not line.startswith('COPY '):
+            continue
+        parts = shlex.split(line)
+        if not parts or parts[0] != 'COPY' or parts[1].split('/')[0] not in ('app', 'scripts'):
+            continue
+        assert len(parts) == 3
+        source, destination = PROJECT_ROOT / parts[1], layout / parts[2]
+        if source.is_dir():
+            for file in source.rglob('*'):
+                if file.is_file() and '__pycache__' not in file.parts and included(file):
+                    target = destination / file.relative_to(source)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(file, target)
+        elif included(source):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
+    return layout
+
+
+@pytest.fixture
+def assert_private_file():
+    def check(path):
+        if os.name != 'nt':
+            assert path.stat().st_mode & 0o777 == 0o600
+            return
+        # POSIX mode bits cannot describe Windows DACLs. Inspect the actual
+        # access rules and require an explicit grant only to the current user.
+        script = """
+$ErrorActionPreference = 'Stop'
+$acl = [System.IO.File]::GetAccessControl($env:WISHIN_PRIVATE_FILE)
+$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+@{ protected = $acl.AreAccessRulesProtected; owner = $sid; rules = @($rules | ForEach-Object {
+  @{ sid = $_.IdentityReference.Value; type = [string]$_.AccessControlType;
+     inherited = $_.IsInherited; rights = [int]$_.FileSystemRights }
+}) } | ConvertTo-Json -Compress -Depth 4
+"""
+        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        result = subprocess.run(
+            [str(powershell), '-NoProfile', '-NonInteractive', '-Command', script],
+            check=True, capture_output=True, env={**os.environ, 'WISHIN_PRIVATE_FILE': str(path)},
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        acl = json.loads(result.stdout)
+        assert acl['protected']
+        assert len(acl['rules']) == 1
+        rule = acl['rules'][0]
+        assert rule['sid'] == acl['owner'] and rule['type'] == 'Allow'
+        assert not rule['inherited']
+        assert rule['rights'] == 2032127  # FileSystemRights.FullControl
+    return check
 
 
 def _alembic_upgrade_to_head(test_db_name: str) -> None:

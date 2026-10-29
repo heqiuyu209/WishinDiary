@@ -16,3 +16,4 @@ skops==0.14.0
 cryptography>=50.0.0
 python-json-logger==4.2.0
 sentry-sdk==2.68.1
+urllib3==2.8.0

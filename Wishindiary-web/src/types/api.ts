@@ -404,6 +404,59 @@ export interface LifestyleProtocol {
   metrics: Record<string, LifestyleScore>;
   coverage_groups: Record<string, Record<string, LifestyleScore>>;
   background_groups?: Record<string, Record<string, LifestyleScore>>;
+  history_groups?: Record<string, Record<string, LifestyleScore>>;
+  variability_groups?: Record<string, Record<string, LifestyleScore>>;
+  fits?: {
+    training_samples: number;
+    calibration_samples: number;
+    adaptive_blend?: Record<
+      string,
+      {
+        available: boolean;
+        training_samples: number;
+        validation_samples: number;
+        validation_users: number;
+        learned_groups: number;
+        global_model_weight: number;
+      }
+    >;
+  }[];
+}
+export interface TrackingProbabilityEvaluation {
+  available: boolean;
+  version: string;
+  protocols: Record<
+    string,
+    {
+      candidate_samples: number;
+      reviewed_samples: number;
+      unreviewed_samples: number;
+      skipped_reviewed_samples: number;
+      fits: {
+        available: boolean;
+        training_samples: number;
+        training_users: number;
+        training_missed: number;
+        calibration_samples: number;
+        probability_calibrated: boolean;
+      }[];
+      scores: {
+        samples: number;
+        missed_reviews?: number;
+        brier?: number;
+        baseline_brier?: number;
+        delta_brier?: number;
+        delta_brier_ci95?: LifestyleScore['delta_mae_ci95'];
+        reliability_bins?: {
+          lower: number;
+          upper: number;
+          samples: number;
+          mean_probability: number | null;
+          observed_review_rate: number | null;
+        }[];
+      };
+    }
+  >;
 }
 export interface ResearchQuality {
   available: boolean;
@@ -436,6 +489,7 @@ export interface LifestyleEvaluation {
   exclusions?: Record<string, number>;
   primary_comparison?: { stage: string; protocol: string; method: string; baseline: string } | null;
   stages?: Record<string, { target: string; protocols: Record<string, LifestyleProtocol> }>;
+  tracking_probability?: TrackingProbabilityEvaluation | null;
 }
 export interface ResearchExperiment {
   run_id: string;

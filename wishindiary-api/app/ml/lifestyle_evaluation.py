@@ -20,6 +20,10 @@ from app.features.lifestyle_features import (
 from app.ml.prediction_scope import history_is_supported
 from app.features.research_background import background_as_of, background_group
 from app.ml.paired_uncertainty import PRIMARY_COMPARISON, paired_mae_interval
+from app.ml.personal_history import (
+    AdaptiveBlend, ConditionalHistory, CONDITIONAL_PARAMETERS, PERSONALIZATION_PARAMETERS, PERSONAL_METHODS,
+    history_group, personal_point, variability_group,
+)
 
 STAGES = (0, 7, 14, 21)
 PARAMETERS = {'n_estimators': 80, 'max_depth': 8, 'random_state': 42}
@@ -206,7 +210,7 @@ def _scores(rows):
 
 def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), resets=None, *, calibration_cutoff,
                            test_cutoff, n_splits=3, coverage=0.9, data_as_of=None, enrollment=None, background_events=(),
-                           bootstrap_replicates=1000, seed=42):
+                           bootstrap_replicates=1000, seed=42, allow_empty=False):
     calibration_cutoff, test_cutoff = utc_instant(calibration_cutoff), utc_instant(test_cutoff)
     if calibration_cutoff >= test_cutoff or not 2 <= n_splits <= 10 or not 0 < coverage < 1:
         raise ValueError('Invalid research cutoffs, folds or coverage')
@@ -219,7 +223,7 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
     # edits or missed-tracking annotations must not remove/rewrite old fits.
     train_snapshot, _ = build_lifestyle_cases(cycle_events, daily_events, tracking_events, resets, dataset_as_of=calibration_cutoff, **options)
     calibration_snapshot, _ = build_lifestyle_cases(cycle_events, daily_events, tracking_events, resets, dataset_as_of=test_cutoff, **options)
-    if not cases:
+    if not cases and not allow_empty:
         raise ValueError('No timely as-recorded cases with sufficient history; backfilled dates cannot reconstruct past forecasts')
     probability = Fraction(str(coverage))
     output = {}
@@ -250,10 +254,12 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
                     skipped += 1
                     continue
                 cohort.extend(test)
-                fitted.append({'training_samples': len(prefix), 'calibration_samples': len(cal),
+                fit_summary = {'training_samples': len(prefix), 'calibration_samples': len(cal),
                     'training_labels_available_through': max(case.label_known_at for case in prefix).isoformat(),
                     'calibration_labels_available_through': max((case.label_known_at for case in cal), default=None).isoformat() if cal else None,
-                    'held_out_user_overlap': len({c.user_id for c in prefix} & {c.user_id for c in test}) if name == 'unseen_users' else None})
+                    'held_out_user_overlap': len({c.user_id for c in (*prefix, *cal)} & {c.user_id for c in test}) if name == 'unseen_users' else None,
+                    'adaptive_blend': {}}
+                fitted.append(fit_summary)
                 def save(method, points, calibration_points):
                     errors = sorted(abs(float(point) - case.actual_remaining) for point, case in zip(calibration_points, cal))
                     rank = math.ceil((len(errors) + 1) * probability)
@@ -261,6 +267,7 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
                     rows = records.setdefault(method, [])
                     rows.extend({'point': float(point), 'actual': case.actual_remaining, 'radius': radius, 'background': case.background_group,
                                  'user_id': case.user_id, 'case_key': case.key,
+                                 'history_group': history_group(case), 'variability_group': variability_group(case),
                                  'coverage': np.mean([case.features[f'{group}_coverage'] for group in ('sleep', 'stress', 'exercise')])}
                                 for point, case in zip(points, test))
                 for group in FEATURE_GROUPS:
@@ -268,6 +275,15 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
                     for shrinkage in (False, True):
                         save(group + ('_shrinkage' if shrinkage else '_direct'),
                              model.predict(test, shrinkage=shrinkage), model.predict(cal, shrinkage=shrinkage) if cal else [])
+                    gate = AdaptiveBlend().fit(prefix, lambda: LifestyleCandidate(group))
+                    fit_summary['adaptive_blend'][group] = gate.summary
+                    save(group + '_adaptive', gate.predict(test, model.predict(test)),
+                         gate.predict(cal, model.predict(cal)) if cal else [])
+                for method in PERSONAL_METHODS:
+                    save(method, [personal_point(case, method) for case in test],
+                         [personal_point(case, method) for case in cal])
+                conditional = ConditionalHistory().fit(prefix)
+                save('conditional_history', conditional.predict(test), conditional.predict(cal) if cal else [])
                 for method in ('mean3', 'median3', 'ewma'):
                     def points(values):
                         result = []
@@ -283,12 +299,11 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
                     save(method, points(test), points(cal))
             metrics = {method: _scores(rows) for method, rows in records.items()}
             for method, metric in metrics.items():
-                if method.endswith(('_direct', '_shrinkage')):
-                    baseline = 'base_' + method.rsplit('_', 1)[1]
-                    metric['delta_mae_vs_base'] = round(metric['mae'] - metrics[baseline]['mae'], 4)
-                    if method != baseline:
-                        metric['delta_mae_ci95'] = paired_mae_interval(records[method], records[baseline],
-                            replicates=bootstrap_replicates, seed=seed)
+                baseline = 'base_shrinkage' if method.endswith('_shrinkage') else 'base_direct'
+                metric['delta_mae_vs_base'] = round(metric['mae'] - metrics[baseline]['mae'], 4)
+                if method != baseline:
+                    metric['delta_mae_ci95'] = paired_mae_interval(records[method], records[baseline],
+                        replicates=bootstrap_replicates, seed=seed)
             protocols[name] = {'samples': len(cohort), 'candidate_samples': len(existing) if name == 'existing_users' else len(targets),
                 'excluded_unseen_cases': len(targets) - len(existing) if name == 'existing_users' else 0,
                 'skipped_empty_folds': skipped, 'fits': fitted,
@@ -298,11 +313,16 @@ def run_lifestyle_ablation(cycle_events, daily_events, tracking_events=(), reset
                     for bucket, include in [('none', lambda value: value == 0), ('sparse', lambda value: 0 < value < 0.5),
                                             ('covered', lambda value: value >= 0.5)]},
                 'background_groups': {group: {method: _scores([row for row in rows if row['background'] == group]) for method, rows in records.items()}
-                    for group in ('unknown', 'explicit_none', 'reported_context')}}
+                    for group in ('unknown', 'explicit_none', 'reported_context')},
+                'history_groups': {group: {method: _scores([row for row in rows if row['history_group'] == group]) for method, rows in records.items()}
+                    for group in ('short', 'medium', 'long')},
+                'variability_groups': {group: {method: _scores([row for row in rows if row['variability_group'] == group]) for method, rows in records.items()}
+                    for group in ('low', 'high')}}
         output[str(stage)] = {'target': 'cycle_length_days' if not stage else 'remaining_wait_days', 'protocols': protocols}
     return {'feature_version': LIFESTYLE_FEATURE_VERSION, 'data_as_of': data_as_of.isoformat(), 'calibration_cutoff': calibration_cutoff.isoformat(),
             'test_cutoff': test_cutoff.isoformat(), 'target_coverage_pct': coverage * 100,
-            'parameters': {'rf': PARAMETERS, 'window_days': 28, 'shrinkage_k': 4, 'stages': list(STAGES)},
+            'parameters': {'rf': PARAMETERS, 'window_days': 28, 'shrinkage_k': 4, 'stages': list(STAGES),
+                           'personalization': PERSONALIZATION_PARAMETERS, 'conditional_history': CONDITIONAL_PARAMETERS},
             'primary_comparison': PRIMARY_COMPARISON,
             'uncertainty': {'method': 'paired_user_cluster_percentile', 'replicates': bootstrap_replicates, 'seed': seed,
                             'conditional_on_fitted_models': True, 'exploratory_comparisons_unadjusted': True},

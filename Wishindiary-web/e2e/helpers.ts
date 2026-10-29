@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 const PASSWORD = 'E2ePassword123!';
 
@@ -28,7 +28,24 @@ export async function registerAndLogin(page: Page, username: string): Promise<vo
 
   // 注册成功后自动切回登录态，表单内容保留，直接登录。
   await expect(page.getByText('注册成功，请直接登录！')).toBeVisible({ timeout: 15_000 });
-  await page.getByRole('button', { name: '进入系统' }).click();
+  const login = async () => {
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (res) => res.url().endsWith('/api/v1/auth/login') && res.request().method() === 'POST',
+      ),
+      page.getByRole('button', { name: '进入系统' }).click(),
+    ]);
+    return response;
+  };
+  let response = await login();
+  if (response.status() === 429) {
+    // The suite shares one localhost IP. Respect the backend's 60-second
+    // window after a burst of real logins, while retaining the normal limit.
+    test.setTimeout(Math.max(test.info().timeout, 120_000));
+    await new Promise((resolve) => setTimeout(resolve, 61_000));
+    response = await login();
+  }
+  expect(response.status()).toBe(200);
 
   await expect(page).toHaveURL(/\/calendar/, { timeout: 15_000 });
 }
