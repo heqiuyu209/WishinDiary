@@ -100,6 +100,8 @@ def truncate_tables():
         # 登录限流表必须一并清空，防止跨用例累计触发 429
         cursor.execute("TRUNCATE TABLE login_attempts;")
         cursor.execute("TRUNCATE TABLE refresh_tokens;")
+        cursor.execute("TRUNCATE TABLE reminder_deliveries;")
+        cursor.execute("TRUNCATE TABLE email_verifications;")
         cursor.execute("TRUNCATE TABLE prediction_logs;")
         cursor.execute("TRUNCATE TABLE daily_logs;")
         cursor.execute("TRUNCATE TABLE cycles;")

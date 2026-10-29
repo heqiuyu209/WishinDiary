@@ -4,7 +4,8 @@ __pycache__/
 .ruff_cache/
 .venv/
 tests/
-scripts/
+scripts/*
+!scripts/send_reminders.py
 *.pkl
 *.joblib
 !ml/*.skops

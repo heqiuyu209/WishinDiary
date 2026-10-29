@@ -1,12 +1,11 @@
-import axios, { AxiosError, type AxiosInstance } from 'axios';
+import axios, { AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 import type { ApiErrorBody } from '../../types/api';
 
 /**
  * 统一 HTTP 客户端。
  *
  * 认证通过后端 HttpOnly Cookie 完成（withCredentials），浏览器端不持久化任何
- * access token。401 仅在非 session 探活路径上触发全局登出事件，避免匿名访问
- * 被记录成两次失败的 session 请求。
+ * access token。会话过期后共享一次刷新请求，并只重试原请求一次。
  */
 const apiClient: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
@@ -14,11 +13,48 @@ const apiClient: AxiosInstance = axios.create({
   withCredentials: true,
 });
 
+type SessionConfig = InternalAxiosRequestConfig & {
+  _wishAuthRetried?: boolean;
+  _wishAuthGeneration?: number;
+};
+let authGeneration = 0;
+let refreshPromise: Promise<unknown> | null = null;
+apiClient.interceptors.request.use((config) => {
+  (config as SessionConfig)._wishAuthGeneration = authGeneration;
+  return config;
+});
+
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError<ApiErrorBody>) => {
+  async (error: AxiosError<ApiErrorBody>) => {
+    const config = error.config as SessionConfig | undefined;
+    const isAuthAction = /\/auth\/(login|register|logout|refresh)$/.test(config?.url ?? '');
     const isSessionProbe = error.config?.url?.endsWith('/api/v1/auth/session') ?? false;
-    if (error.response?.status === 401 && !isSessionProbe) {
+    if (error.response?.status === 401 && config && !isAuthAction && !config._wishAuthRetried) {
+      config._wishAuthRetried = true;
+      try {
+        // A delayed 401 may belong to the cookie before a completed refresh.
+        if ((config._wishAuthGeneration ?? 0) >= authGeneration) {
+          if (!refreshPromise) {
+            refreshPromise = apiClient
+              .post('/api/v1/auth/refresh')
+              .then((response) => {
+                authGeneration += 1;
+                return response;
+              })
+              .finally(() => {
+                refreshPromise = null;
+              });
+          }
+          await refreshPromise;
+        }
+        return apiClient.request(config);
+      } catch {
+        // The original request remains the caller's failure; credentials are
+        // never stored in browser storage or returned by this client.
+      }
+    }
+    if (error.response?.status === 401 && !isSessionProbe && !isAuthAction) {
       window.dispatchEvent(new Event('wishindiary:session-expired'));
     }
     return Promise.reject(error);

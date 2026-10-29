@@ -11,6 +11,7 @@ import platform
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from importlib.metadata import PackageNotFoundError, version
 
 # 把项目根目录加入 path，让 import 正确找到 app.*
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -56,21 +57,12 @@ def _collect_env_metadata() -> dict:
         ).stdout.strip()
     except Exception:
         git_commit = "unknown"
-    try:
-        import sklearn
-        import numpy
-        import pymysql
-
-        dep_versions = {
-            "python": platform.python_version(),
-            "scikit-learn": sklearn.__version__,
-            "numpy": numpy.__version__,
-            "pandas": pd.__version__,
-            "pymysql": pymysql.__version__,
-            "skops": sio.__version__,
-        }
-    except Exception:
-        dep_versions = {}
+    dep_versions = {"python": platform.python_version()}
+    for package in ("scikit-learn", "numpy", "pandas", "pymysql", "skops"):
+        try:
+            dep_versions[package] = version(package)
+        except PackageNotFoundError:
+            dep_versions[package] = "not-installed"
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "git_commit": git_commit,
@@ -272,8 +264,8 @@ def train_and_evaluate(synthetic_only: bool = False, csv_path: str | None = None
 
     # 真实样本不足时，用干净合成数据补足（保证模型稳定且对编辑有响应）
     # —— CSV 真实数据模式除外：按用户要求纯真实数据训练，禁用合成兜底
-    real_n = 0 if X_real is None else len(X_real)
-    if real_n < MIN_REAL_SAMPLES:
+    real_n = 0 if synthetic_only or X_real is None else len(X_real)
+    if not synthetic_only and real_n < MIN_REAL_SAMPLES:
         if csv_path:
             print(
                 f"⚠️ 真实 CSV 样本仅 {real_n} 个（阈值 {MIN_REAL_SAMPLES}），"

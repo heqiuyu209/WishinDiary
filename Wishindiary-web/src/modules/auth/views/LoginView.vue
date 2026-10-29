@@ -12,6 +12,7 @@ const authStore = useAuthStore();
 const isRegistering = ref(false);
 const usernameInput = ref('');
 const passwordInput = ref('');
+const emailInput = ref('');
 const message = ref('');
 const errorMsg = ref('');
 const isSubmitting = ref(false);
@@ -90,7 +91,10 @@ const handleLogin = async () => {
     // 确认浏览器能携带 Cookie，再进入受保护页面。
     try {
       const session = await getSessionApi();
-      authStore.login(session.data.username ?? usernameInput.value);
+      authStore.login(session.data.username ?? usernameInput.value, {
+        is_admin: session.data.is_admin,
+        email: session.data.email ?? undefined,
+      });
     } catch {
       authStore.logout();
       errorMsg.value =
@@ -112,12 +116,18 @@ const handleRegister = async () => {
       username: usernameInput.value,
       password: passwordInput.value,
       ...(backfillDates.length ? { period_start_dates: backfillDates } : {}),
+      ...(emailInput.value.trim() ? { email: emailInput.value.trim() } : {}),
     });
     const recorded = res.data?.period_dates_recorded ?? 0;
     message.value =
       recorded > 0
         ? `注册成功！已为您补录 ${recorded} 次经期记录，可直接登录享受个性化预测。`
         : '注册成功，请直接登录！';
+    if (res.data.email_verification_required) {
+      message.value += res.data.email_verification_sent
+        ? ' 邮箱验证码已发送，请登录后在设置中验证。'
+        : ' 请登录后在设置中重新发送邮箱验证码。';
+    }
     isRegistering.value = false;
     showBackfill.value = false;
     periodDates.value = ['', ''];
@@ -170,7 +180,7 @@ const handleRegister = async () => {
             for="username"
             class="text-[11px] font-bold text-gray-500 uppercase tracking-widest"
           >
-            账号
+            {{ isRegistering ? '账号' : '账号或已验证邮箱' }}
           </label>
           <input
             id="username"
@@ -215,6 +225,19 @@ const handleRegister = async () => {
       </div>
 
       <div v-if="isRegistering" class="space-y-3">
+        <label for="registration-email" class="block text-sm text-gray-600">
+          邮箱（可选，用于提醒）
+        </label>
+        <input
+          id="registration-email"
+          v-model="emailInput"
+          type="email"
+          maxlength="254"
+          autocomplete="email"
+          placeholder="name@example.com"
+          class="w-full rounded-2xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm"
+        />
+        <p class="text-xs text-gray-500">登录后验证邮箱，再由你决定是否开启提醒。</p>
         <button
           id="backfill-toggle"
           type="button"

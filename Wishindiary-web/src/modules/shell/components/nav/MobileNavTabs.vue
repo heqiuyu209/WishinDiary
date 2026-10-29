@@ -20,7 +20,8 @@ const { indicatorStyle, setBtn } = useNavIndicator(
 <template>
   <div
     ref="containerRef"
-    class="relative grid grid-cols-3 gap-1.5 rounded-[24px] border border-white/55 bg-white/24 p-1.5 shadow-[0_8px_25px_-18px_rgba(15,23,42,0.2)] backdrop-blur-sm"
+    class="relative grid gap-1.5 rounded-[24px] border border-white/55 bg-white/24 p-1.5 shadow-[0_8px_25px_-18px_rgba(15,23,42,0.2)] backdrop-blur-sm"
+    :style="{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }"
   >
     <!-- 滑动指示器：随激活项平滑滑动的白色圆角块 -->
     <span
@@ -33,6 +34,7 @@ const { indicatorStyle, setBtn } = useNavIndicator(
       :key="item.name"
       :ref="setBtn(index)"
       type="button"
+      :aria-label="item.label"
       @click="emit('select', item.name)"
       :class="
         activeName === item.name

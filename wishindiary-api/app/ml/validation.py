@@ -19,11 +19,29 @@ def build_group_kfold_splits(X: pd.DataFrame, groups: pd.Series, n_splits: int =
 
 
 def build_temporal_holdout_split(feature_matrix: pd.DataFrame, test_fraction: float = 0.2):
+    """Return original row positions, keeping equal-date observations together.
+
+    A training target is only available when that cycle has finished. Exclude
+    targets spanning the held-out prediction boundary when lengths are known.
+    """
     if not 0 < test_fraction < 1:
         raise ValueError("test_fraction must be between 0 and 1")
-    ordered = feature_matrix.sort_values("start_date").reset_index(drop=True)
-    cut = max(1, int(len(ordered) * (1 - test_fraction)))
-    return ordered.index[:cut].to_numpy(), ordered.index[cut:].to_numpy()
+    if len(feature_matrix) < 2:
+        raise ValueError("Temporal validation requires at least two samples")
+    dates = pd.to_datetime(feature_matrix["start_date"], errors="coerce")
+    if dates.isna().any():
+        raise ValueError("Temporal validation requires valid start dates")
+    order = np.argsort(dates.to_numpy(), kind="stable")
+    cut = min(len(order) - 1, max(1, int(len(order) * (1 - test_fraction))))
+    boundary = dates.iloc[order[cut]]
+    train_idx = np.flatnonzero((dates < boundary).to_numpy())
+    test_idx = np.flatnonzero((dates >= boundary).to_numpy())
+    if "target_length" in feature_matrix:
+        available_at = dates + pd.to_timedelta(feature_matrix["target_length"], unit="D")
+        train_idx = train_idx[(available_at.iloc[train_idx] <= boundary).to_numpy()]
+    if not len(train_idx) or not len(test_idx):
+        raise ValueError("Temporal boundary leaves no usable training or test samples")
+    return train_idx, test_idx
 
 
 def evaluate_regression_metrics(y_true, y_pred) -> dict[str, float]:

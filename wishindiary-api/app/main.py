@@ -10,6 +10,8 @@ from app.routers.prediction import router as prediction_router
 from app.routers.stats import router as stats_router
 from app.routers.report import router as report_router
 from app.routers.user_data import router as user_data_router
+from app.routers.admin import router as admin_router
+from app.routers.notifications import router as notification_router
 from app.core.config import settings
 from app.core.database import get_db_connection
 from app.core.csrf import CSRFSecurityMiddleware
@@ -54,6 +56,8 @@ app.include_router(prediction_router)  # 周期预测（特征提取 + predictio
 app.include_router(stats_router)  # 数据统计与仪表盘
 app.include_router(report_router)
 app.include_router(user_data_router)  # 健康数据导出与账号删除（数据可携带权/被遗忘权）
+app.include_router(admin_router)
+app.include_router(notification_router)
 
 # 可选 Prometheus /metrics 端点（METRICS_ENABLED=true 时启用）
 if settings.METRICS_ENABLED:
