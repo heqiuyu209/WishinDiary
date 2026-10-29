@@ -119,8 +119,7 @@ export interface ForecastIntervalScores {
   mean_width_days?: number;
 }
 
-export interface ForecastCalibrationMethod {
-  fits: { samples: number; rank: number; available: boolean; radius_days?: number }[];
+export interface ForecastIntervalComparison {
   test_samples: number;
   unavailable_samples: number;
   calibrated: ForecastIntervalScores;
@@ -129,6 +128,10 @@ export interface ForecastCalibrationMethod {
     original: ForecastIntervalScores;
     calibrated: ForecastIntervalScores;
   };
+}
+
+export interface ForecastCalibrationMethod extends ForecastIntervalComparison {
+  fits: { samples: number; rank: number; available: boolean; radius_days?: number }[];
 }
 
 export interface ForecastScores {
@@ -154,6 +157,12 @@ export interface ForecastEvaluation {
   generated_at?: string;
   git_commit?: string;
   cutoff?: string;
+  time_windows?: {
+    window_days: number;
+    date_basis: 'forecast_anchor';
+    last_candidate_date: string;
+    end_exclusive: string;
+  };
   dataset?: { source: string; total_cycles: number; n_users: number };
   calibration?: {
     method: 'absolute_residual_split';
@@ -177,7 +186,12 @@ export interface ForecastEvaluation {
             { samples: number; coverage_pct?: number; mean_width_days?: number }
           >
         >;
-        groups?: Partial<Record<ForecastGroup, (ForecastScores & { label: string })[]>>;
+        groups?: Partial<Record<ForecastGroup, ForecastBreakdownRow[]>>;
+        time_windows?: (ForecastScores & {
+          start: string;
+          end_exclusive: string;
+          interval_comparison: Record<ForecastIntervalMethod, ForecastIntervalComparison>;
+        })[];
         calibration?: {
           target_coverage_pct: number;
           methods: Record<ForecastIntervalMethod, ForecastCalibrationMethod>;
@@ -185,6 +199,11 @@ export interface ForecastEvaluation {
       }
     >
   >;
+}
+
+export interface ForecastBreakdownRow extends ForecastScores {
+  label: string;
+  interval_comparison?: Record<ForecastIntervalMethod, ForecastIntervalComparison>;
 }
 
 // ---------------------------------------------------------------------------

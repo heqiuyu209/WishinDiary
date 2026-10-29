@@ -126,6 +126,12 @@ class ResearchService:
                         measured = calibrated["calibrated"].get("coverage_pct")
                         if measured is not None and measured < calibration["target_coverage_pct"]:
                             recommendations.append(f"{label}的{method_label}校准区间覆盖率为 {measured:.2f}%，低于实验目标：研究时间变化、用户差异与波动分组，在新的测试段复核。")
+                        windows = [window["interval_comparison"][method]["calibrated"]
+                                   for window in result.get("time_windows", [])
+                                   if window["interval_comparison"][method]["calibrated"]["samples"]]
+                        below = sum(window["coverage_pct"] < calibration["target_coverage_pct"] for window in windows)
+                        if len(windows) > 1 and below:
+                            recommendations.append(f"{label}的{method_label}有 {below}/{len(windows)} 个可评估时间窗的覆盖率低于实验目标：结合各窗样本量、波动和缺失分组检查，在预先固定的新时间段复核；分窗结果仅供探索，勿用同一测试集反复调参。")
                 elif coverage is not None and coverage < 90:
                     recommendations.append(f"{label}的树分位区间覆盖率为 {coverage:.2f}%：优先建立独立时间校准段，再在未使用的未来测试段验证覆盖率与宽度。")
         return {

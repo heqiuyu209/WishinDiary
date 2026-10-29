@@ -1,12 +1,12 @@
 """Fixed-path, aggregate-only view of an independently generated backtest."""
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import json
 import logging
 import math
 import re
 
 from app.core.config import settings
-from app.ml.forecast_evaluation import MODEL_KEYS, pipeline_fingerprint
+from app.ml.forecast_evaluation import MAX_TIME_WINDOWS, MODEL_KEYS, pipeline_fingerprint
 from app.ml.interval_calibration import INTERVAL_METHODS
 
 logger = logging.getLogger(__name__)
@@ -116,6 +116,76 @@ def _calibration_summary(values, target: float, samples: int, folds: int) -> dic
     return {"target_coverage_pct": target, "methods": methods}
 
 
+def _time_window_config(values, cutoff: date) -> dict:
+    days = _count(values["window_days"])
+    last = date.fromisoformat(values["last_candidate_date"])
+    end = date.fromisoformat(values["end_exclusive"])
+    if not 1 <= days <= 365 or values["date_basis"] != "forecast_anchor" or last < cutoff:
+        raise ValueError("Invalid time window configuration")
+    count = (last - cutoff).days // days + 1
+    if count > MAX_TIME_WINDOWS or end != cutoff + timedelta(days=count * days):
+        raise ValueError("Invalid time window horizon")
+    return {"window_days": days, "date_basis": "forecast_anchor",
+            "last_candidate_date": last.isoformat(), "end_exclusive": end.isoformat()}
+
+
+def _breakdown_scores(values, parent: dict) -> dict:
+    result = _scores(values)
+    if result["samples"] > parent["samples"]:
+        raise ValueError("Breakdown sample count exceeds protocol")
+    methods = {}
+    for method in INTERVAL_METHODS:
+        value = values["interval_comparison"][method]
+        root = parent["calibration"]["methods"][method]
+        count, unavailable = _count(value["test_samples"]), _count(value["unavailable_samples"])
+        calibrated = _interval_scores(value["calibrated"])
+        paired = _count(value["comparison"]["samples"])
+        original = _interval_scores(value["comparison"]["original"])
+        adjusted = _interval_scores(value["comparison"]["calibrated"])
+        if (count > root["test_samples"] or unavailable > count or calibrated["samples"] != count - unavailable
+                or paired > calibrated["samples"] or paired > root["comparison"]["samples"]
+                or original["samples"] != paired or adjusted["samples"] != paired
+                or (not any(fit["available"] for fit in root["fits"]) and calibrated["samples"])
+                or (root["fits"] and all(fit["available"] for fit in root["fits"]) and unavailable)):
+            raise ValueError("Invalid breakdown interval comparison")
+        methods[method] = {
+            "test_samples": count, "unavailable_samples": unavailable, "calibrated": calibrated,
+            "comparison": {"samples": paired, "original": original, "calibrated": adjusted},
+        }
+    if sum(value["test_samples"] for value in methods.values()) != result["samples"]:
+        raise ValueError("Breakdown paths do not cover samples")
+    result["interval_comparison"] = methods
+    return result
+
+
+def _validate_partition(buckets: list[dict], parent: dict) -> None:
+    if sum(bucket["samples"] for bucket in buckets) != parent["samples"]:
+        raise ValueError("Breakdown does not partition protocol samples")
+    for method in INTERVAL_METHODS:
+        rows = [bucket["interval_comparison"][method] for bucket in buckets]
+        root = parent["calibration"]["methods"][method]
+        if (any(sum(row[key] for row in rows) != root[key] for key in ("test_samples", "unavailable_samples"))
+                or sum(row["calibrated"]["samples"] for row in rows) != root["calibrated"]["samples"]
+                or sum(row["comparison"]["samples"] for row in rows) != root["comparison"]["samples"]):
+            raise ValueError("Breakdown intervals do not partition protocol samples")
+
+
+def _time_window_scores(values, config: dict, cutoff: date, parent: dict) -> list[dict]:
+    count = (date.fromisoformat(config["end_exclusive"]) - cutoff).days // config["window_days"]
+    if not isinstance(values, list) or len(values) != count:
+        raise ValueError("Missing or excessive time windows")
+    windows = []
+    for index, value in enumerate(values):
+        start = cutoff + timedelta(days=index * config["window_days"])
+        end = start + timedelta(days=config["window_days"])
+        if date.fromisoformat(value["start"]) != start or date.fromisoformat(value["end_exclusive"]) != end:
+            raise ValueError("Time windows must be contiguous and non-overlapping")
+        windows.append({"start": start.isoformat(), "end_exclusive": end.isoformat(),
+                        **_breakdown_scores(value, parent)})
+    _validate_partition(windows, parent)
+    return windows
+
+
 def read_forecast_report() -> dict:
     path = settings.model_abs_path.parent / "forecast_evaluation_report.json"
     if not path.exists():
@@ -124,7 +194,7 @@ def read_forecast_report() -> dict:
         if path.stat().st_size > 1_000_000:
             raise ValueError("Oversized backtest report")
         report = json.loads(path.read_text(encoding="utf-8"), parse_constant=_reject_constant)
-        if type(report.get("schema_version")) is not int or report["schema_version"] not in (1, 2):
+        if type(report.get("schema_version")) is not int or report["schema_version"] not in (1, 2, 3):
             raise ValueError("Unsupported backtest schema")
         dataset = report["dataset"]
         if dataset["source"] not in {"synthetic", "authorized_csv", "authorized_database"}:
@@ -132,7 +202,7 @@ def read_forecast_report() -> dict:
         evaluation = report["evaluation"]
         cutoff = date.fromisoformat(evaluation["cutoff"])
         calibration = None
-        if report["schema_version"] == 2:
+        if report["schema_version"] >= 2:
             value = evaluation["calibration"]
             calibration_cutoff = date.fromisoformat(value["cutoff"])
             labels = value["labels_available_through"]
@@ -150,6 +220,7 @@ def read_forecast_report() -> dict:
                 "labels_available_through": date.fromisoformat(labels).isoformat() if labels is not None else None,
                 "training_labels_available_through": training_labels.isoformat(),
             }
+        time_windows = _time_window_config(evaluation["time_windows"], cutoff) if report["schema_version"] == 3 else None
         protocols = {}
         for name in ("existing_users", "unseen_users"):
             values = evaluation["protocols"][name]
@@ -179,6 +250,16 @@ def read_forecast_report() -> dict:
                     values["calibration"], calibration["target_coverage_pct"], parsed["samples"],
                     1 if name == "existing_users" else parsed["n_splits"],
                 )
+            if time_windows is not None:
+                parsed["time_windows"] = _time_window_scores(values["time_windows"], time_windows, cutoff, parsed)
+                for axis, labels in GROUP_LABELS.items():
+                    buckets = values["groups"][axis]
+                    if [bucket["label"] for bucket in buckets] != list(labels):
+                        raise ValueError("Missing or repeated breakdown groups")
+                    parsed["groups"][axis] = [
+                        {"label": bucket["label"], **_breakdown_scores(bucket, parsed)} for bucket in buckets
+                    ]
+                    _validate_partition(parsed["groups"][axis], parsed)
             protocols[name] = parsed
         digest = report["pipeline_sha256"]
         if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
@@ -198,6 +279,8 @@ def read_forecast_report() -> dict:
         }
         if calibration is not None:
             result["calibration"] = calibration
+        if time_windows is not None:
+            result["time_windows"] = time_windows
         return result
     except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
         logger.warning("Full-pipeline backtest report could not be read")

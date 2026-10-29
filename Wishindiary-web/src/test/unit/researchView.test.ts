@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ResearchView from '../../modules/research/views/ResearchView.vue';
+import IntervalBreakdownTable from '../../modules/research/components/IntervalBreakdownTable.vue';
 import type { ForecastCalibrationMethod } from '../../types/api';
 
 const getSummary = vi.hoisted(() => vi.fn());
@@ -190,7 +191,7 @@ describe('research administration', () => {
     expect(unseen.attributes('aria-pressed')).toBe('true');
     expect(wrapper.text()).toContain('共同评估样本：50 条');
     expect(wrapper.text()).toContain('1.67');
-    await wrapper.get('select').setValue('volatility');
+    await wrapper.get('#forecast-group').setValue('volatility');
     expect(wrapper.text()).toContain('高（>5 天）');
     expect(wrapper.text()).toContain('4.20');
     wrapper.unmount();
@@ -282,5 +283,69 @@ describe('research administration', () => {
     expect(wrapper.text()).toContain('1.80');
     expect(wrapper.text()).not.toContain('共同评估样本');
     wrapper.unmount();
+  });
+
+  it('switches temporal results with protocol and keeps old reports free of invented windows', async () => {
+    const forecast = calibratedForecastFixture();
+    const addWindows = (
+      result: typeof forecast.protocols.existing_users | typeof forecast.protocols.unseen_users,
+    ) => {
+      const comparisons = {
+        rf_personalized: { ...result.calibration.methods.rf_personalized },
+        basic_stats: { ...result.calibration.methods.basic_stats },
+      };
+      return {
+        ...result,
+        time_windows: [
+          {
+            start: '2024-08-18',
+            end_exclusive: '2024-09-17',
+            samples: result.samples,
+            models: result.models,
+            interval_comparison: comparisons,
+          },
+        ],
+      };
+    };
+    getSummary.mockResolvedValue({
+      data: {
+        ...fixture(),
+        forecast_evaluation: {
+          ...forecast,
+          time_windows: {
+            window_days: 30,
+            date_basis: 'forecast_anchor',
+            last_candidate_date: '2024-09-10',
+            end_exclusive: '2024-09-17',
+          },
+          protocols: {
+            existing_users: addWindows(forecast.protocols.existing_users),
+            unseen_users: addWindows(forecast.protocols.unseen_users),
+          },
+        },
+      },
+    });
+    const wrapper = mount(ResearchView);
+    await flushPromises();
+    expect(wrapper.text()).toContain('后续时间窗口');
+    const windows = wrapper.findAllComponents(IntervalBreakdownTable)[0]!;
+    expect(windows.text()).toContain('2024-08-18');
+    expect(windows.text()).toContain('90.74%');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '模型未见用户')!
+      .trigger('click');
+    expect(windows.text()).toContain('88.00%');
+    expect(windows.text()).toContain('4 条样本因校准历史不足');
+    wrapper.unmount();
+
+    getSummary.mockResolvedValue({
+      data: { ...fixture(), forecast_evaluation: forecastFixture() },
+    });
+    const legacy = mount(ResearchView);
+    await flushPromises();
+    expect(legacy.text()).not.toContain('后续时间窗口');
+    expect(legacy.findComponent(IntervalBreakdownTable).exists()).toBe(false);
+    legacy.unmount();
   });
 });

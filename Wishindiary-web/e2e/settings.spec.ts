@@ -25,14 +25,16 @@ test('access cookie 缺失时使用 refresh cookie 续期，再次退出后无�
   await registerAndLogin(page, uniqueUsername());
   const before = (await context.cookies()).find((cookie) => cookie.name === 'refresh_token');
   expect(before).toBeDefined();
-  await context.clearCookies({ name: 'access_token' });
+  // 日历仍可能发出初始请求：先监听，再删 cookie；站内跳转避免取消正在续期的请求。
   const renewed = page.waitForResponse((response) =>
     response.url().endsWith('/api/v1/auth/refresh'),
   );
-  await page.goto('/settings');
+  await context.clearCookies({ name: 'access_token' });
+  await page.getByRole('button', { name: '邮箱与设置', exact: true }).click();
   expect((await renewed).status()).toBe(200);
   await expect(page.getByRole('heading', { name: '邮箱与提醒设置' })).toBeVisible();
   const after = (await context.cookies()).find((cookie) => cookie.name === 'refresh_token');
+  expect(after).toBeDefined();
   expect(after?.value).not.toEqual(before?.value);
   await page.getByRole('button', { name: '退出登录', exact: true }).click();
   await expect(page).toHaveURL(/\/login/);
