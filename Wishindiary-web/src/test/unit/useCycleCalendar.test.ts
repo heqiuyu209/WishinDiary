@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, nextTick, type App } from 'vue';
 import type { AxiosResponse } from 'axios';
-import { useCycleCalendar } from '../../modules/calendar/composables/useCycleCalendar';
+import {
+  useCycleCalendar,
+  buildDailyLogPayload,
+  createDefaultDailyForm,
+} from '../../modules/calendar/composables/useCycleCalendar';
 import type {
   StatusResponse,
   StatsResponse,
@@ -16,6 +20,7 @@ vi.mock('../../modules/dashboard/api', () => ({
 }));
 vi.mock('../../modules/calendar/api', () => ({
   logStartApi: vi.fn(),
+  confirmTrackingApi: vi.fn(),
   logEndApi: vi.fn(),
   saveDailyLogApi: vi.fn(),
   getDailyLogApi: vi.fn(),
@@ -25,7 +30,12 @@ vi.mock('../../modules/calendar/api', () => ({
 }));
 
 import { getPredictionApi, getStatsApi } from '../../modules/dashboard/api';
-import { getDailyLogApi, logEndApi, saveDailyLogApi } from '../../modules/calendar/api';
+import {
+  confirmTrackingApi,
+  getDailyLogApi,
+  logEndApi,
+  saveDailyLogApi,
+} from '../../modules/calendar/api';
 
 const getStatsApiMock = vi.mocked(getStatsApi);
 const getPredictionApiMock = vi.mocked(getPredictionApi);
@@ -115,6 +125,24 @@ describe('useCycleCalendar', () => {
     app.unmount();
   });
 
+  it('超出模型范围时保留解释与提示，并清除预测日', async () => {
+    const { app, calendar } = await makeCalendar(predictionFixture());
+    getPredictionApiMock.mockResolvedValue(
+      ok({
+        status: 'outside_model_scope',
+        prediction: null,
+        message: '暂不提供日期',
+        data_quality_warnings: ['核对 60 天记录'],
+      }) as never,
+    );
+    await calendar.fetchData();
+    expect(calendar.prediction.value).toBeNull();
+    expect(calendar.predictionMessage.value).toBe('暂不提供日期');
+    expect(calendar.predictionWarnings.value).toEqual(['核对 60 天记录']);
+    expect(calendar.calendarAttributes.value.some((row) => row.key === 'pred-start')).toBe(false);
+    app.unmount();
+  });
+
   it('最新经期已结束时，不把历史漏记结束日当成开放周期', async () => {
     const { app, calendar } = await makeCalendar();
     getStatsApiMock.mockResolvedValue(
@@ -162,6 +190,35 @@ describe('useCycleCalendar', () => {
     app.unmount();
   });
 
+  it('历史结束日未知时，补录结束准确提交历史周期 ID', async () => {
+    logEndApiMock.mockResolvedValue(ok({ status: 'success', message: 'ok' }) as never);
+    const { app, calendar } = await makeCalendar();
+    getStatsApiMock.mockResolvedValue(
+      ok({
+        ...stats,
+        cycles: [{ ...closedCycle, end_date: null }, openCycle],
+      }) as never,
+    );
+    await calendar.fetchData();
+    calendar.selectedDate.value = new Date(2020, 0, 5);
+    await nextTick();
+    expect(calendar.endTargetCycle.value?.cycle_id).toBe(1);
+    expect(calendar.canConfirmEnd.value).toBe(true);
+    await calendar.markEnd();
+    expect(logEndApiMock.mock.calls[0]?.[0]).toEqual({ end_date: '2020-01-05', cycle_id: 1 });
+    app.unmount();
+  });
+
+  it('核对操作提交所选周期、类型与日期', async () => {
+    vi.mocked(confirmTrackingApi).mockResolvedValue(ok({ status: 'success' }) as never);
+    const { app, calendar } = await makeCalendar();
+    calendar.selectedDate.value = new Date(2020, 0, 3);
+    await nextTick();
+    await calendar.confirmTracking('missed_tracking');
+    expect(confirmTrackingApi).toHaveBeenCalledWith(1, 'missed_tracking', '2020-01-03');
+    app.unmount();
+  });
+
   it('saveLog 请求体携带新增自记录字段', async () => {
     saveDailyLogApiMock.mockResolvedValue(
       ok({ status: 'success', message: 'ok', ai_health_advice: ['ok'] }) as never,
@@ -183,7 +240,7 @@ describe('useCycleCalendar', () => {
       is_late_night: true,
       is_medication: true,
       medication_note: '布洛芬',
-      symptom_levels: { headache: 2, bloat: 0, breast_tenderness: 0, fatigue: 0 },
+      symptom_levels: { headache: 2, bloat: null, breast_tenderness: null, fatigue: null },
     });
 
     app.unmount();
@@ -246,12 +303,12 @@ describe('useCycleCalendar', () => {
     await nextTick();
 
     expect(calendar.dailyForm.medication_note).toBe('');
-    expect(calendar.dailyForm.is_medication).toBe(false);
+    expect(calendar.dailyForm.is_medication).toBeNull();
     expect(calendar.dailyForm.symptom_levels).toEqual({
-      headache: 0,
-      bloat: 0,
-      breast_tenderness: 0,
-      fatigue: 0,
+      headache: null,
+      bloat: null,
+      breast_tenderness: null,
+      fatigue: null,
     });
 
     app.unmount();
@@ -398,5 +455,17 @@ describe('useCycleCalendar', () => {
       new Date(2099, 0, 31).getTime(),
     );
     app.unmount();
+  });
+});
+
+describe('daily missing-value payload', () => {
+  it('默认未知、清空输入仍发送 null；明确未运动才保存零', () => {
+    const form = createDefaultDailyForm();
+    expect(buildDailyLogPayload(form, '2024-01-01').is_intercourse).toBeNull();
+    form.sleep_duration_minutes = '' as unknown as number;
+    expect(buildDailyLogPayload(form, '2024-01-01').sleep_duration_minutes).toBeNull();
+    form.is_exercise = false;
+    expect(buildDailyLogPayload(form, '2024-01-01').exercise_minutes).toBe(0);
+    expect(form.exercise_minutes).toBeNull();
   });
 });

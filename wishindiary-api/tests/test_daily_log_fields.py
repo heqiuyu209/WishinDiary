@@ -15,10 +15,10 @@ PREV = (TODAY - timedelta(days=1)).isoformat()
 FUTURE = (TODAY + timedelta(days=5)).isoformat()
 
 FULL_SYMPTOMS = {
-    "headache": 0,
-    "bloat": 0,
-    "breast_tenderness": 0,
-    "fatigue": 0,
+    "headache": None,
+    "bloat": None,
+    "breast_tenderness": None,
+    "fatigue": None,
 }
 
 BASE = {
@@ -41,13 +41,13 @@ def _get_log(client, date_str=D):
 
 
 class TestSleepMedicationSymptomPersistence:
-    def test_defaults_zero_on_empty_submit(self, client, auth_header):
+    def test_defaults_unknown_on_empty_submit(self, client, auth_header):
         _create(client, BASE)
         log = _get_log(client)
-        assert log["sleep_duration_minutes"] == 0
-        assert log["sleep_quality"] == 0
-        assert log["is_late_night"] is False
-        assert log["is_medication"] is False
+        assert log["sleep_duration_minutes"] is None
+        assert log["sleep_quality"] is None
+        assert log["is_late_night"] is None
+        assert log["is_medication"] is None
         assert log["medication_note"] is None
         assert log["symptom_levels"] == FULL_SYMPTOMS
 
@@ -69,7 +69,7 @@ class TestSleepMedicationSymptomPersistence:
         assert log["is_medication"] is True
         assert log["medication_note"] == "布洛芬 200mg 睡前"
         # 仅传部分症状键时，缺失键服务端补 0
-        assert log["symptom_levels"] == {"headache": 2, "bloat": 0, "breast_tenderness": 0, "fatigue": 3}
+        assert log["symptom_levels"] == {"headache": 2, "bloat": None, "breast_tenderness": None, "fatigue": 3}
 
     def test_upsert_overwrites_fields(self, client, auth_header):
         _create(client, {**BASE, "sleep_duration_minutes": 300, "is_late_night": False})
@@ -137,7 +137,7 @@ class TestGetPutDelete:
         log = _get_log(client)
         assert log["is_medication"] is True
         assert log["medication_note"] == "维生素 D"
-        assert log["mood_level"] == 0  # 未传字段走默认
+        assert log["mood_level"] is None  # 未传字段走默认
 
         put2 = {
             "log_date": D,
@@ -151,7 +151,7 @@ class TestGetPutDelete:
         assert log["is_medication"] is False
         assert log["medication_note"] is None
         assert log["sleep_duration_minutes"] == 600
-        assert log["symptom_levels"] == {"headache": 0, "bloat": 1, "breast_tenderness": 0, "fatigue": 0}
+        assert log["symptom_levels"] == {"headache": None, "bloat": 1, "breast_tenderness": None, "fatigue": None}
 
     def test_delete_then_get_404(self, client, auth_header):
         _create(client, BASE)

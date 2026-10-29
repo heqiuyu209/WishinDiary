@@ -29,7 +29,7 @@ def save_daily_log(
     user_id: int = Depends(get_current_user_id),
     request: Request = None,
 ):
-    """保存每日健康日志，并基于症状与日记由 AI 生成个性化健康与膳食营养建议。"""
+    """保存每日健康日志，并返回基于规则的记录提示。"""
     result = _daily_log_service.save(user_id, req)
     audit(
         "daily_log.save",
@@ -65,7 +65,7 @@ def update_daily_log(
     user_id: int = Depends(get_current_user_id),
     request: Request = None,
 ):
-    """幂等覆盖某天日志（语义同 POST，允许修改），并重新生成 AI 建议。"""
+    """幂等覆盖某天日志（语义同 POST，允许修改），并更新记录提示。"""
     result = _daily_log_service.update(user_id, req)
     audit(
         "daily_log.update",

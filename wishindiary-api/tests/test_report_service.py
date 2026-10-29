@@ -102,4 +102,4 @@ class TestReportCrampsEvaluation:
         p = report["report"]
         assert p["average_cycle_length"] == 28.0
         assert p["total_recorded_cycles"] == 0
-        assert p["cramps_evaluation"] == "轻度微痛"
+        assert p["cramps_evaluation"] == "腹痛未填写"

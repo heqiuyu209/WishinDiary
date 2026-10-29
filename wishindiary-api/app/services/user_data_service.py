@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 
 _EXPORT_TABLES = (
     ("cycles", "cycle_id"),
+    ("cycle_revisions", "revision_id"),
+    ("cycle_tracking_events", "event_id"),
     ("daily_logs", "log_id"),
+    ("daily_log_revisions", "revision_id"),
     ("prediction_logs", "pred_id"),
 )
 
@@ -51,7 +54,7 @@ class UserDataService:
             with transaction() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        "SELECT user_id, username, created_at FROM users WHERE user_id = %s",
+                        "SELECT user_id, username, created_at, cycle_history_reset_at FROM users WHERE user_id = %s",
                         (user_id,),
                     )
                     user = cursor.fetchone()
@@ -63,6 +66,7 @@ class UserDataService:
                             "user_id": user["user_id"],
                             "username": user["username"],
                             "created_at": _iso(user["created_at"]),
+                            "cycle_history_reset_at": _iso(user.get("cycle_history_reset_at")),
                         }
                     }
                     for table, id_col in _EXPORT_TABLES:

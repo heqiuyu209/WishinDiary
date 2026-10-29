@@ -73,7 +73,8 @@ def test_prediction_checks_raw_intervals_before_filtering(client, auth_header, i
             current += timedelta(days=length)
     response = client.get("/api/v1/prediction")
     assert response.status_code == 200, response.text
-    warnings = response.json()["prediction"]["data_quality_warnings"]
+    assert response.json()["status"] == "outside_model_scope"
+    warnings = response.json()["data_quality_warnings"]
     assert warnings and any(wording in warning for warning in warnings)
     assert str(intervals[-1]) in warnings[0]
 
@@ -82,3 +83,19 @@ def test_normal_raw_history_has_no_warning(client, auth_header):
     for start in ["2024-01-01", "2024-01-29", "2024-02-26"]:
         assert client.post("/api/v1/log_start", json={"start_date": start}).status_code == 200
     assert client.get("/api/v1/prediction").json()["prediction"]["data_quality_warnings"] is None
+
+
+def test_repeated_long_cycles_abstain_without_snapshot(client, auth_header):
+    current = date(2024, 1, 1)
+    for _ in range(4):
+        assert client.post("/api/v1/log_start", json={"start_date": current.isoformat()}).status_code == 200
+        current += timedelta(days=60)
+    body = client.get("/api/v1/prediction").json()
+    assert body["status"] == "outside_model_scope"
+    assert body["prediction"] is None
+    assert any("60" in item for item in body["data_quality_warnings"])
+    from app.core.database import transaction
+    with transaction() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) AS n FROM prediction_logs")
+            assert cursor.fetchone()["n"] == 0

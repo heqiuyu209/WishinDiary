@@ -90,6 +90,8 @@ def _patch_transaction(monkeypatch, fake_cursor):
     ):
         if hasattr(mod, "transaction"):
             monkeypatch.setattr(mod, "transaction", lambda: _Ctx())
+        if hasattr(mod, "user_today"):
+            monkeypatch.setattr(mod, "user_today", lambda cursor, user_id: date.today())
 
 
 @pytest.fixture
@@ -107,23 +109,18 @@ class TestCycleServiceLogStart:
             CycleService().log_start(1, date(2099, 1, 1))
         assert exc_info.value.status_code == 400
 
-    def test_rejects_start_earlier_than_open_cycle(self, monkeypatch, fake_cursor):
-        """存在进行中的周期时，新开始日期不能早于/等于上一个未结束周期。"""
+    def test_rejects_duplicate_start(self, monkeypatch, fake_cursor):
+        """重复开始日由明确的唯一记录检查拒绝。"""
         from app.services import cycle_service as mod
 
         fake_cursor.data["fetchone"] = {"cycle_id": 10, "start_date": date(2026, 8, 1)}
-        monkeypatch.setattr(
-            mod,
-            "get_unclosed_cycle_for_update",
-            lambda cursor, user_id: {"cycle_id": 10, "start_date": date(2026, 8, 1)},
-        )
         monkeypatch.setattr(mod, "audit", lambda *a, **k: None)
         _patch_transaction(monkeypatch, fake_cursor)
 
         with pytest.raises(AppError) as exc_info:
             CycleService().log_start(1, date(2026, 8, 1))
         assert exc_info.value.status_code == 400
-        assert "进行中的周期" in exc_info.value.message
+        assert "已经存在" in exc_info.value.message
 
 
 class TestCycleServiceLogEnd:
@@ -217,5 +214,5 @@ class TestPredictionService:
 
         result = PredictionService().get_prediction(1)
         assert result["status"] == "insufficient_data"
-        assert result["message"] == "数据不足：请至少记录 4 个完整周期后再试"
+        assert "至少记录两次" in result["message"]
         assert "internal/path.py" not in result["message"]

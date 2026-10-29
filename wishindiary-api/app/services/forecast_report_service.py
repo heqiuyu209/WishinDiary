@@ -242,7 +242,7 @@ def read_forecast_report() -> dict:
                     {"label": bucket["label"], **_scores(bucket)}
                     for bucket in buckets if bucket.get("label") in labels
                 ]
-            for key in ("n_splits", "training_samples", "excluded_unseen_cases", "skipped_empty_folds"):
+            for key in ("n_splits", "training_samples", "excluded_unseen_cases", "skipped_empty_folds", "candidate_samples", "abstained_samples"):
                 if key in values:
                     parsed[key] = _count(values[key])
             if calibration is not None:

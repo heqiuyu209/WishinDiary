@@ -1,6 +1,13 @@
 import { computed, onMounted, reactive, ref, watch, type Ref } from 'vue';
 import type { AxiosResponse } from 'axios';
-import { deleteCycleApi, getDailyLogApi, logEndApi, logStartApi, saveDailyLogApi } from '../api';
+import {
+  confirmTrackingApi,
+  deleteCycleApi,
+  getDailyLogApi,
+  logEndApi,
+  logStartApi,
+  saveDailyLogApi,
+} from '../api';
 import { getPredictionApi, getStatsApi } from '../../dashboard/api';
 import { extractApiErrorMessage } from '../../../shared/api/httpClient';
 import {
@@ -14,46 +21,82 @@ import {
 import type {
   CycleOperationResponse,
   CycleRead,
+  TrackingKind,
   DailyLogData,
+  DailyLogRequest,
   DailyLogResponse,
   PredictionResponseData,
 } from '../../../types/api';
 
 export interface DailyFormData {
-  mood_level: number;
-  cramps_severity: number;
-  is_exercise: boolean;
-  is_intercourse: boolean;
+  mood_level: number | null;
+  cramps_severity: number | null;
+  is_exercise: boolean | null;
+  is_intercourse: boolean | null;
   exercise_type: string;
-  exercise_minutes: number;
+  exercise_minutes: number | null;
+  exercise_intensity: number | null;
+  stress_level: number | null;
   diet_tag: string;
   journal_text: string;
-  // --- 新增自记录维度 ---
-  sleep_duration_minutes: number;
-  sleep_quality: number;
-  is_late_night: boolean;
-  is_medication: boolean;
+  sleep_duration_minutes: number | null;
+  sleep_quality: number | null;
+  sleep_start_minutes: number | null;
+  is_late_night: boolean | null;
+  is_night_shift: boolean | null;
+  is_medication: boolean | null;
   medication_note: string;
-  symptom_levels: { headache: number; bloat: number; breast_tenderness: number; fatigue: number };
+  symptom_levels: {
+    headache: number | null;
+    bloat: number | null;
+    breast_tenderness: number | null;
+    fatigue: number | null;
+  };
 }
 
 export function createDefaultDailyForm(): DailyFormData {
   return {
-    mood_level: 0,
-    cramps_severity: 0,
-    is_exercise: false,
-    is_intercourse: false,
+    mood_level: null,
+    cramps_severity: null,
+    is_exercise: null,
+    is_intercourse: null,
     exercise_type: '',
-    exercise_minutes: 30,
-    diet_tag: '清淡',
+    exercise_minutes: null,
+    exercise_intensity: null,
+    stress_level: null,
+    diet_tag: '',
     journal_text: '',
-    sleep_duration_minutes: 0,
-    sleep_quality: 0,
-    is_late_night: false,
-    is_medication: false,
+    sleep_duration_minutes: null,
+    sleep_quality: null,
+    sleep_start_minutes: null,
+    is_late_night: null,
+    is_night_shift: null,
+    is_medication: null,
     medication_note: '',
-    symptom_levels: { headache: 0, bloat: 0, breast_tenderness: 0, fatigue: 0 },
+    symptom_levels: { headache: null, bloat: null, breast_tenderness: null, fatigue: null },
   };
+}
+
+export function buildDailyLogPayload(form: DailyFormData, logDate: string): DailyLogRequest {
+  const result = { ...form, symptom_levels: { ...form.symptom_levels }, log_date: logDate };
+  const numericKeys = [
+    'mood_level',
+    'cramps_severity',
+    'exercise_minutes',
+    'exercise_intensity',
+    'stress_level',
+    'sleep_duration_minutes',
+    'sleep_quality',
+    'sleep_start_minutes',
+  ] as const;
+  for (const key of numericKeys) {
+    if (typeof result[key] !== 'number' || !Number.isFinite(result[key])) result[key] = null;
+  }
+  if (result.is_exercise === false) {
+    result.exercise_minutes = 0;
+    result.exercise_intensity = 0;
+  }
+  return result;
 }
 
 interface CalendarAttr {
@@ -68,6 +111,8 @@ interface CalendarAttr {
 export function useCycleCalendar() {
   const selectedDate: Ref<Date> = ref(new Date());
   const prediction = ref<PredictionResponseData | null>(null);
+  const predictionMessage = ref('');
+  const predictionWarnings = ref<string[]>([]);
   const message = ref('');
   const errorMsg = ref('');
   const aiHealthAdvices = ref<string[]>([]);
@@ -125,7 +170,16 @@ export function useCycleCalendar() {
   const selectedClosedCycle = computed(() =>
     findSelectedClosedCycle(selectedDate.value, cycles.value),
   );
-  const selectedCycle = computed(() => selectedClosedCycle.value || openCycle.value);
+  const selectedUnknownCycle = computed(() => {
+    const target = formatDate(selectedDate.value);
+    const preceding = [...cycles.value]
+      .filter((cycle) => cycle.start_date <= target)
+      .sort((a, b) => a.start_date.localeCompare(b.start_date))
+      .at(-1);
+    return preceding && !preceding.end_date ? preceding : null;
+  });
+  const endTargetCycle = computed(() => selectedUnknownCycle.value || openCycle.value);
+  const selectedCycle = computed(() => selectedClosedCycle.value || endTargetCycle.value);
   const estimatedBleedingDays = computed(() => {
     const durations = cycles.value
       .map((cycle) => Number(cycle.bleeding_days))
@@ -137,7 +191,7 @@ export function useCycleCalendar() {
     return Math.max(1, Math.round(average));
   });
   const selectedPreviewRange = computed(() => {
-    const currentOpen = openCycle.value;
+    const currentOpen = endTargetCycle.value;
     if (!currentOpen) return null;
 
     const start = toLocalDate(currentOpen.start_date);
@@ -153,7 +207,7 @@ export function useCycleCalendar() {
   });
 
   const selectedPreviewMode = computed<'none' | 'default' | 'custom'>(() => {
-    if (!openCycle.value) return 'none';
+    if (!endTargetCycle.value) return 'none';
     if (manualEndDate.value) return 'custom';
     return 'default';
   });
@@ -171,7 +225,7 @@ export function useCycleCalendar() {
   });
 
   const canConfirmEnd = computed(() => {
-    const currentOpen = openCycle.value;
+    const currentOpen = endTargetCycle.value;
     if (!currentOpen) return false;
 
     const start = toLocalDate(currentOpen.start_date);
@@ -207,13 +261,13 @@ export function useCycleCalendar() {
       });
     });
 
-    if (selectedPreviewRange.value && openCycle.value) {
+    if (selectedPreviewRange.value && endTargetCycle.value) {
       attrs.push({
-        key: `cycle-preview-${openCycle.value.cycle_id}-${formatDate(selectedPreviewRange.value.start)}-${formatDate(selectedPreviewRange.value.end)}`,
+        key: `cycle-preview-${endTargetCycle.value.cycle_id}-${formatDate(selectedPreviewRange.value.start)}-${formatDate(selectedPreviewRange.value.end)}`,
         highlight: { color: 'red', fillMode: 'light' },
         dates: { start: selectedPreviewRange.value.start, end: selectedPreviewRange.value.end },
         order: 30,
-        customData: { cycle_id: openCycle.value.cycle_id, state: 'preview' },
+        customData: { cycle_id: endTargetCycle.value.cycle_id, state: 'preview' },
       });
     }
 
@@ -274,7 +328,7 @@ export function useCycleCalendar() {
     try {
       const res = await logEndApi({
         end_date: formatDate(manualEndDate.value || selectedDate.value),
-        cycle_id: openCycle.value?.cycle_id ?? null,
+        cycle_id: endTargetCycle.value?.cycle_id ?? null,
       });
       applySuccess(res, '标记经期结束');
     } catch (err) {
@@ -290,11 +344,7 @@ export function useCycleCalendar() {
     const logDate = formatDate(selectedDate.value);
     dailyLogSaving.value = true;
     try {
-      const res = await saveDailyLogApi({
-        log_date: logDate,
-        ...dailyForm,
-        symptom_levels: { ...dailyForm.symptom_levels },
-      });
+      const res = await saveDailyLogApi(buildDailyLogPayload(dailyForm, logDate));
       if (logDate === formatDate(selectedDate.value)) applySuccess(res, '打卡成功');
     } catch (err) {
       if (logDate === formatDate(selectedDate.value)) handleRequestError(err, '保存失败');
@@ -304,27 +354,25 @@ export function useCycleCalendar() {
   };
 
   const fillDailyForm = (log: DailyLogData) => {
-    dailyForm.mood_level = log.mood_level;
-    dailyForm.cramps_severity = log.cramps_severity;
-    dailyForm.is_exercise = log.is_exercise;
-    dailyForm.is_intercourse = log.is_intercourse;
-    dailyForm.exercise_type = log.exercise_type ?? '';
-    dailyForm.exercise_minutes = log.exercise_minutes;
-    dailyForm.diet_tag = log.diet_tag ?? '';
-    dailyForm.journal_text = log.journal_text ?? '';
-    dailyForm.sleep_duration_minutes = log.sleep_duration_minutes ?? 0;
-    dailyForm.sleep_quality = log.sleep_quality ?? 0;
-    dailyForm.is_late_night = log.is_late_night ?? false;
-    dailyForm.is_medication = log.is_medication ?? false;
-    dailyForm.medication_note = log.medication_note ?? '';
-    dailyForm.symptom_levels = log.symptom_levels
-      ? {
-          headache: log.symptom_levels.headache ?? 0,
-          bloat: log.symptom_levels.bloat ?? 0,
-          breast_tenderness: log.symptom_levels.breast_tenderness ?? 0,
-          fatigue: log.symptom_levels.fatigue ?? 0,
-        }
-      : { headache: 0, bloat: 0, breast_tenderness: 0, fatigue: 0 };
+    const legacy = log.recording_version === 0;
+    Object.assign(dailyForm, createDefaultDailyForm());
+    const fields = Object.keys(dailyForm).filter((key) => key !== 'symptom_levels') as Array<
+      keyof Omit<DailyFormData, 'symptom_levels'>
+    >;
+    for (const key of fields) {
+      const value = log[key];
+      // Old defaults cannot tell "not filled" from an explicit zero/false.
+      const clean = legacy && (value === 0 || value === false) ? null : value;
+      Object.assign(dailyForm, {
+        [key]: clean ?? (typeof dailyForm[key] === 'string' ? '' : null),
+      });
+    }
+    for (const key of Object.keys(dailyForm.symptom_levels) as Array<
+      keyof DailyFormData['symptom_levels']
+    >) {
+      const value = log.symptom_levels?.[key] ?? null;
+      dailyForm.symptom_levels[key] = legacy && value === 0 ? null : value;
+    }
   };
 
   let dailyLogFetchSeq = 0;
@@ -382,6 +430,24 @@ export function useCycleCalendar() {
     }
   };
 
+  const trackingSaving = ref(false);
+  const confirmTracking = async (kind: TrackingKind) => {
+    if (!selectedCycle.value || trackingSaving.value) return;
+    trackingSaving.value = true;
+    try {
+      const response = await confirmTrackingApi(
+        selectedCycle.value.cycle_id,
+        kind,
+        formatDate(selectedDate.value),
+      );
+      applySuccess(response, '核对信息已保存');
+    } catch (err) {
+      handleRequestError(err, '核对信息保存失败');
+    } finally {
+      trackingSaving.value = false;
+    }
+  };
+
   const clearSelectedCycle = async () => {
     if (selectedCycle.value) {
       await clearCycle(selectedCycle.value.cycle_id);
@@ -397,9 +463,14 @@ export function useCycleCalendar() {
     if (predictionResult.status === 'fulfilled') {
       const payload = predictionResult.value.data;
       prediction.value = payload.status === 'success' ? payload.prediction : null;
+      predictionMessage.value =
+        payload.status === 'success' ? '' : payload.message || '暂时无法预测';
+      predictionWarnings.value = payload.data_quality_warnings || [];
     } else {
       // 预测数据不足时仍然保留并显示历史周期，不能阻断日历加载。
       prediction.value = null;
+      predictionMessage.value = '预测加载失败，请稍后重试。';
+      predictionWarnings.value = [];
       console.warn('Prediction unavailable:', predictionResult.reason);
     }
 
@@ -416,7 +487,7 @@ export function useCycleCalendar() {
 
   watch(selectedDate, (newDate) => {
     void loadDailyLogForDate(newDate);
-    const currentOpen = openCycle.value;
+    const currentOpen = endTargetCycle.value;
     if (!currentOpen) {
       manualEndDate.value = null;
       return;
@@ -439,6 +510,8 @@ export function useCycleCalendar() {
   return {
     selectedDate,
     prediction,
+    predictionMessage,
+    predictionWarnings,
     message,
     errorMsg,
     aiHealthAdvices,
@@ -450,6 +523,7 @@ export function useCycleCalendar() {
     isSelectedFuture,
     calendarMaxDate,
     openCycle,
+    endTargetCycle,
     selectedClosedCycle,
     selectedCycle,
     estimatedBleedingDays,
@@ -461,6 +535,8 @@ export function useCycleCalendar() {
     markEnd,
     saveLog,
     clearSelectedCycle,
+    confirmTracking,
+    trackingSaving,
     fetchData,
   };
 }

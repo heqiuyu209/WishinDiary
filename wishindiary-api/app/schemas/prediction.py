@@ -26,3 +26,4 @@ class PredictionResponse(BaseModel):
     status: str
     prediction: PredictionResponseData | None = None
     message: str | None = None
+    data_quality_warnings: list[str] | None = None

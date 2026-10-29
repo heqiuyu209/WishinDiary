@@ -14,6 +14,9 @@
 
 from datetime import date
 
+import pytest
+from app.ml.prediction_scope import PredictionScopeError
+
 
 from app.core.config import settings
 from app.ml.contract import FEATURE_NAMES
@@ -43,7 +46,7 @@ class TestBaselinePrediction:
         assert out["last_period_start"] == "2026-01-01"
         assert out["next_period_start"] == "2026-01-30"
         assert out["confidence_interval"] is None
-        assert "医学正常范围" in out["medical_guardrail_note"]
+        assert "不能据此判断" in out["medical_guardrail_note"]
         assert out["model_version"]
         assert "10维" in out["features_info"]
 
@@ -53,15 +56,11 @@ class TestBaselinePrediction:
         assert out["last_period_start"] == "2026-05-01"
         assert out["next_period_start"] == "2026-05-29"
 
-    def test_clamps_out_of_range_value_to_guardrail(self, monkeypatch):
+    def test_out_of_scope_output_abstains(self, monkeypatch):
         svc = _no_model(monkeypatch)
-        too_long = svc.predict(_features(roll_3_mean=60.0), "2026-01-01")
-        assert too_long["predicted_cycle_length"] == 45
-        assert too_long["raw_predicted_cycle_length"] == 60
-        assert "按医学边界修正" in too_long["medical_guardrail_note"]
-
-        too_short = svc.predict(_features(roll_3_mean=5.0), "2026-01-01")
-        assert too_short["predicted_cycle_length"] == 21
+        for length in (5, 60):
+            with pytest.raises(PredictionScopeError):
+                svc.predict(_features(roll_3_mean=length), "2026-01-01")
 
     def test_rejects_invalid_features(self, monkeypatch):
         svc = _no_model(monkeypatch)
@@ -195,14 +194,9 @@ class TestBayesianShrinkage:
         assert out["predicted_cycle_length"] == 35
 
         # 收缩后仍越界：0.5*100+0.5*10 = 55 → 被 clamp 到 45
-        out_clamped = svc.predict(
-            _features(roll_3_mean=100.0),
-            "2026-01-01",
-            n_complete_cycles=4,
-            user_mean=10.0,
-        )
-        assert out_clamped["predicted_cycle_length"] == 45
-        assert "按医学边界修正" in out_clamped["medical_guardrail_note"]
+        with pytest.raises(PredictionScopeError):
+            svc.predict(_features(roll_3_mean=100.0), "2026-01-01",
+                        n_complete_cycles=4, user_mean=10.0)
 
     def test_shrinkage_applies_to_confidence_interval(self, monkeypatch):
         # 模型输出30/树(28,30,32)，n=4 → w=0.5，user_mean=26：

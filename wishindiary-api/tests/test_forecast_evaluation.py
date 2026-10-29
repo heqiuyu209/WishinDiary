@@ -52,7 +52,7 @@ def test_cold_start_uses_personal_statistics_not_the_global_model():
     out = predict_case(case, CyclePredictionService(model=ConstantModel(60)))
     assert out["method"] == "basic_stats"
     assert out["predictions"] == dict.fromkeys(MODEL_KEYS, 26)
-    assert out["interval"]["low"] == out["interval"]["high"] == 26
+    assert out["interval"] is None
 
 
 def test_future_labels_and_bleeding_do_not_enter_current_features():
@@ -132,3 +132,11 @@ def test_interval_coverage_uses_actual_values_and_separates_basic_estimator():
     assert result["intervals"]["rf_personalized"] == {"samples": 2, "coverage_pct": 50, "mean_width_days": 4}
     assert result["intervals"]["basic_stats"] == {"samples": 1, "coverage_pct": 100, "mean_width_days": 0}
     assert summarize_forecasts([])["models"] == {}
+
+
+def test_scope_abstentions_are_counted_not_silently_removed():
+    frame = _cycles(lengths=(28, 28, 28, 28, 60, 28, 28, 28, 28))
+    result = run_forecast_backtest(frame, cutoff="2024-05-01", model_factory=lambda: ConstantModel(28))
+    for protocol in result["protocols"].values():
+        assert protocol["abstained_samples"] > 0
+        assert protocol["candidate_samples"] == protocol["samples"] + protocol["abstained_samples"]

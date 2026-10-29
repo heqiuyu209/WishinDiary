@@ -61,6 +61,7 @@ Wishindiary-web/dist-ssr/
 *.onnx
 *.skops
 wishindiary-api/ml/model_evaluation_report.*
+wishindiary-api/ml/lifestyle_evaluation_report.*
 wishindiary-api/ml/monitoring_logs/
 data/
 exports/

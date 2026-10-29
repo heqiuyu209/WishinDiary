@@ -57,14 +57,14 @@ class ReportService:
                     cramps_row = cursor.fetchone()
                     avg_cramps = (
                         cramps_row["avg_cramps"]
-                        if cramps_row and cramps_row["avg_cramps"]
-                        else 0
+                        if cramps_row and cramps_row["avg_cramps"] is not None
+                        else None
                     )
 
-                    cramps_eval = "轻度微痛"
-                    if avg_cramps >= 2.0:
+                    cramps_eval = "腹痛未填写" if avg_cramps is None else "无已记录腹痛"
+                    if avg_cramps is not None and avg_cramps >= 2.0:
                         cramps_eval = "重度剧痛"
-                    elif avg_cramps >= 1.0:
+                    elif avg_cramps is not None and avg_cramps >= 1.0:
                         cramps_eval = "中度疼痛"
 
                     # 周期规律性：基于全部已记录周期长度的波动（标准差）评估
@@ -123,7 +123,7 @@ class ReportService:
                             f"目前仅有 {total_cycles} 个周期记录，样本偏少，结论仅供参考。"
                         )
                     else:
-                        readiness = "已有充足周期记录，以下结论相对可靠。"
+                        readiness = "已有多次周期记录，可用于观察变化；记录数量不能保证预测准确。"
 
                     # 平均周期区间提示（非诊断性参考）
                     if avg_length < 21:
@@ -136,6 +136,8 @@ class ReportService:
                         length_hint = f"平均周期约 {avg_length} 天，偏长，常见范围是 21~35 天。"
 
                     advice = {
+                        "腹痛未填写": "腹痛信息未填写，无法据此评估。",
+                        "无已记录腹痛": "已填写的记录没有腹痛；这不是对整体健康的判断。",
                         "轻度微痛": "保持规律作息与温和运动，持续记录症状变化。",
                         "中度疼痛": "建议记录疼痛出现时间和持续时长；若反复影响生活，请咨询专业医务人员。",
                         "重度剧痛": "如疼痛剧烈、持续或伴随异常出血，请及时就医；本摘要不能替代诊断。",
@@ -154,7 +156,7 @@ class ReportService:
                         )
                     else:
                         advice_parts.append(
-                            "每次经期结束后及时打卡，样本越多预测越准。"
+                            "请按实际情况记录开始日和症状；更多记录需经验证才能确定是否改善预测。"
                         )
                     doctor_advice = " ".join(advice_parts)
 

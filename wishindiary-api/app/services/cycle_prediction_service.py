@@ -15,6 +15,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.ml.contract import FEATURE_NAMES, MODEL_VERSION
+from app.ml.prediction_scope import PredictionScopeError
 
 logger = logging.getLogger(__name__)
 
@@ -121,14 +122,10 @@ class CyclePredictionService:
         raw_pred_length = int(round(raw_model_length))
         pred_round = int(round(adjusted_model_length))
 
-        # 医学边界保护（基于收缩后的最终预测值）
-        pred_length = max(21, min(pred_round, 45))
-        if pred_round != pred_length:
-            medical_note = (
-                f"模型收缩后输出 {pred_round} 天，已按医学边界修正为 {pred_length} 天（21-45 天）"
-            )
-        else:
-            medical_note = "预测结果位于医学正常范围内（21-45 天，已含个人历史收缩）"
+        if not 21 <= pred_round <= 45:
+            raise PredictionScopeError("Model output outside the supported calculation range")
+        pred_length = pred_round
+        medical_note = "模型使用个人历史收缩；计算范围不代表医学正常范围，不能据此判断身体状态。"
 
         # 不确定性区间：基于随机森林各树预测分布的分位数（5%~95%）。
         # 各树预测同样按相同收缩权重混入个人均值，保证 CI 与收缩后语义一致。

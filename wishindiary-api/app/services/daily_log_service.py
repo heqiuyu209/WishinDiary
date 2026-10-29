@@ -4,6 +4,7 @@ import logging
 from datetime import date
 
 from app.core.audit import audit
+from app.core.calendar_time import user_today
 from app.core.database import transaction
 from app.core.errors import AppError
 from app.repositories.daily_log_repository import (
@@ -21,35 +22,18 @@ logger = logging.getLogger(__name__)
 
 
 class DailyLogService:
-    """每日日志业务：保存日志并生成个性化 AI 健康与膳食营养建议。"""
+    """每日日志业务：保存日志并生成基于记录的提示。"""
 
     def save(self, user_id: int, req: DailyLogRequest) -> dict:
-        if req.log_date > date.today():
-            raise AppError(400, "invalid_input", "日志日期不能晚于今天")
-
         try:
             with transaction() as connection:
                 with connection.cursor() as cursor:
-                    upsert_daily_log(
-                        cursor,
-                        user_id,
-                        log_date=req.log_date,
-                        mood_level=req.mood_level,
-                        cramps_severity=req.cramps_severity,
-                        is_exercise=req.is_exercise,
-                        is_intercourse=req.is_intercourse,
-                        exercise_type=req.exercise_type,
-                        exercise_minutes=req.exercise_minutes,
-                        diet_tag=req.diet_tag,
-                        journal_text=req.journal_text,
-                        sleep_duration_minutes=req.sleep_duration_minutes,
-                        sleep_quality=req.sleep_quality,
-                        is_late_night=req.is_late_night,
-                        is_medication=req.is_medication,
-                        medication_note=req.medication_note,
-                        # Pydantic v2 默认不校验 None 默认值，此处兜底为全 0 默认对象
-                        symptom_levels=req.symptom_levels or dict(DEFAULT_SYMPTOM_LEVELS),
-                    )
+                    cursor.execute("SELECT user_id FROM users WHERE user_id=%s FOR UPDATE", (user_id,))
+                    if req.log_date > user_today(cursor, user_id):
+                        raise AppError(400, "invalid_input", "日志日期不能晚于今天")
+                    payload = req.model_dump()
+                    payload["symptom_levels"] = req.symptom_levels or dict(DEFAULT_SYMPTOM_LEVELS)
+                    upsert_daily_log(cursor, user_id, **payload)
 
             audit(
                 "daily_log.save",
@@ -63,6 +47,7 @@ class DailyLogService:
                 "status": "success",
                 "message": "✨ 健康日志保存成功！",
                 "ai_health_advice": advices,
+                "advice_source": "rule_based",
             }
         except AppError:
             raise
@@ -107,24 +92,21 @@ class DailyLogService:
 
     @staticmethod
     def _generate_advice(req: DailyLogRequest) -> list[str]:
-        """基于症状与日记生成个性化建议（纯函数，便于单元测试）。"""
+        """Transparent record-based hints, not clinical or AI assessment."""
         advices: list[str] = []
-        if req.cramps_severity >= 2:
-            advices.append(
-                "检测到腹痛较为明显，建议多喝温开水，适当补充富含镁元素与维生素 B6 的食物（如香蕉、坚果、深色蔬菜）以缓解肌肉痉挛。"
-            )
-        if req.is_exercise and req.exercise_minutes > 45:
-            advices.append(
-                f"今日进行了 {req.exercise_minutes} 分钟的 {req.exercise_type or '运动'}，体力消耗较大，请注意及时补充电解质和优质蛋白质。"
-            )
-        if req.diet_tag and ("辛辣" in req.diet_tag or "油腻" in req.diet_tag):
-            advices.append(
-                "饮食偏向重口味，可能会加重盆腔充血或身体负担，建议多吃富含膳食纤维的果蔬促进代谢。"
-            )
+        names = {"headache": "头痛", "bloat": "腹胀", "breast_tenderness": "乳房胀痛", "fatigue": "疲劳"}
+        reported = dict(req.symptom_levels or {})
+        reported["cramps"] = req.cramps_severity
+        names["cramps"] = "腹痛"
+        significant = [names[key] for key, value in reported.items() if (value or 0) >= 2]
+        if significant:
+            advices.append("已记录较明显的" + "、".join(significant) + "。请记录出现时间、持续情况和是否影响生活；如持续、加重或影响日常活动，请联系专业医务人员。")
+        if req.is_exercise and (req.exercise_minutes or 0) > 45:
+            advices.append(f"已记录 {req.exercise_minutes} 分钟运动。按身体感受安排休息与饮水，避免勉强继续运动。")
+        if (req.stress_level or 0) >= 2:
+            advices.append("已记录较明显的压力。可继续观察压力、作息与症状的变化，按需要寻求支持；此自评不是诊断。")
         if req.journal_text and any(k in req.journal_text for k in ["压力", "焦虑", "失眠", "累", "烦"]):
-            advices.append(
-                "日记中透露出一定的生活压力，建议睡前进行 10 分钟深呼吸放松或泡个温水脚，保证充足睡眠。"
-            )
+            advices.append("日记中提到了压力或睡眠困扰，可继续记录变化并安排休息；文字关键词不能确定压力程度或病因。")
         if not advices:
-            advices.append("今日身体状态平稳，继续保持规律作息和均衡饮食哦！")
+            advices.append("本次记录已保存。未填写的信息不能用于判断身体状态；请按实际情况继续记录。")
         return advices

@@ -42,5 +42,39 @@ def test_dry_run_and_apply_with_private_recovery_copy(client, auth_header, tmp_p
     first = client.get("/api/v1/stats").json()["cycles"][0]
     assert first["end_date"] is None
     assert first["cycle_length"] == 28
+    with transaction() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT end_date,source FROM cycle_revisions WHERE user_id=%s ORDER BY start_date", (user_id,))
+            revisions = cursor.fetchall()
+    assert len(revisions) == 2
+    assert all(row["source"] == "repair_snapshot" for row in revisions)
+    assert revisions[0]["end_date"] is None
     assert repair_history()["records_to_repair"] == 0
     assert client.post("/api/v1/log_end", json={"end_date": "2024-02-02"}).status_code == 200
+
+
+def test_retention_resets_research_history_and_recalculates_remaining_cycle(client, auth_header, monkeypatch):
+    from app.core import database
+    from scripts import cleanup_expired_data
+
+    user_id = client.get("/api/v1/auth/session").json()["user_id"]
+    assert client.post("/api/v1/log_start", json={"start_date": "2024-01-01"}).status_code == 200
+    assert client.post("/api/v1/log_start", json={"start_date": "2024-01-29"}).status_code == 200
+    with transaction() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("UPDATE cycles SET created_at='2000-01-01' WHERE user_id=%s AND start_date='2024-01-29'", (user_id,))
+    monkeypatch.setattr(cleanup_expired_data, "_connect", database.get_db_connection)
+    monkeypatch.setattr("sys.argv", ["cleanup_expired_data.py", "--days", "365"])
+    assert cleanup_expired_data.main() == 0
+    assert len(client.get("/api/v1/stats").json()["cycles"]) == 2
+    monkeypatch.setattr("sys.argv", ["cleanup_expired_data.py", "--apply", "--days", "365"])
+    assert cleanup_expired_data.main() == 0
+    cycles = client.get("/api/v1/stats").json()["cycles"]
+    assert len(cycles) == 1
+    assert cycles[0]["cycle_length"] is None
+    with transaction() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT cycle_history_reset_at FROM users WHERE user_id=%s", (user_id,))
+            assert cursor.fetchone()["cycle_history_reset_at"] is not None
+            cursor.execute("SELECT COUNT(*) AS n FROM cycle_revisions WHERE user_id=%s", (user_id,))
+            assert cursor.fetchone()["n"] == 1

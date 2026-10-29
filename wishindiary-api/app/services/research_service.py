@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.database import transaction
 from app.core.errors import AppError
 from app.services.forecast_report_service import read_forecast_report
+from app.ml.lifestyle_report import read_lifestyle_report
 
 logger = logging.getLogger(__name__)
 
@@ -91,11 +92,22 @@ class ResearchService:
                     histories = [int(r["n"]) for r in cursor.fetchall()]
                     cursor.execute("SELECT state, COUNT(*) AS count FROM reminder_deliveries GROUP BY state ORDER BY state")
                     reminder_states = [{"state": r["state"], "count": int(r["count"])} for r in cursor.fetchall()]
+                    cursor.execute("""
+                        SELECT COUNT(*) AS total, SUM(recording_version=0) AS legacy,
+                          SUM(recording_version=1) AS recorded,
+                          SUM(recording_version=1 AND sleep_duration_minutes IS NOT NULL) AS sleep,
+                          SUM(recording_version=1 AND stress_level IS NOT NULL) AS stress,
+                          SUM(recording_version=1 AND exercise_minutes IS NOT NULL) AS exercise,
+                          SUM(recording_version=1 AND exercise_intensity IS NOT NULL) AS intensity
+                        FROM daily_logs
+                    """)
+                    lifestyle_coverage = {key: int(value or 0) for key, value in cursor.fetchone().items()}
         except Exception:
             logger.exception("Research data summary failed")
             raise AppError(503, "service_unavailable", "研究汇总暂不可用，请稍后重试")
         evaluation = read_evaluation_report()
         forecast = read_forecast_report()
+        lifestyle = read_lifestyle_report()
         recommendations = []
         if evaluation.get("dataset", {}).get("source") == "synthetic":
             recommendations.append("当前指标来自合成数据，用于验证流程；真实预测效果需要独立授权数据评估。")
@@ -163,5 +175,7 @@ class ResearchService:
             },
             "evaluation": evaluation,
             "forecast_evaluation": forecast,
+            "lifestyle_evaluation": lifestyle,
+            "lifestyle_coverage": lifestyle_coverage,
             "recommendations": recommendations,
         }

@@ -93,7 +93,10 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_error_body(
                 "validation_error",
                 "请求参数校验失败",
-                exc.errors(),
+                # Validator contexts can contain Exception objects; inputs may
+                # contain passwords or private notes. Expose only safe fields.
+                [{key: error[key] for key in ("type", "loc", "msg") if key in error}
+                 for error in exc.errors()],
             ),
         )
 

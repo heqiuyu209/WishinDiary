@@ -14,8 +14,9 @@ def test_basic_prediction_preserves_cold_start_rounding_guardrail_and_interval()
     assert result["confidence_interval"]["low"] == 27.5
     assert result["confidence_interval"]["high"] == 28.5
     long = build_basic_prediction([{"cycle_length": 60}], date(2024, 1, 1))
-    assert long["raw_predicted_cycle_length"] == 60
-    assert long["predicted_cycle_length"] == 45
+    assert long is None
+    assert build_basic_prediction([{"cycle_length": 60}] * 3, date(2024, 1, 1)) is None
+    assert build_basic_prediction([{"cycle_length": 28}], date(2024, 1, 1))["confidence_interval"] is None
 
 
 def test_basic_prediction_requires_known_history_and_anchor():

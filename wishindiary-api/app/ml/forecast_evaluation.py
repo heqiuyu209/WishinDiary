@@ -17,6 +17,7 @@ from app.features.cycle_feature_engineering import (
 )
 from app.ml.basic_prediction import build_basic_prediction
 from app.ml.contract import FEATURE_NAMES
+from app.ml.prediction_scope import PredictionScopeError, history_is_supported
 from app.ml.interval_calibration import (
     apply_interval_calibration, fit_interval_calibrators, summarize_interval_calibration,
 )
@@ -41,7 +42,7 @@ class ForecastCase:
 def pipeline_fingerprint() -> str:
     """Identify the evaluated calculation, independently of a deployed weight file."""
     root = Path(__file__).resolve().parents[1]
-    paths = ("ml/forecast_evaluation.py", "ml/interval_calibration.py", "ml/basic_prediction.py", "ml/contract.py",
+    paths = ("ml/forecast_evaluation.py", "ml/interval_calibration.py", "ml/basic_prediction.py", "ml/contract.py", "ml/prediction_scope.py",
              "features/cycle_feature_engineering.py", "services/cycle_prediction_service.py",
              "services/prediction_service.py")
     digest = hashlib.sha256()
@@ -82,24 +83,29 @@ def build_forecast_cases(raw_cycles: pd.DataFrame) -> list[ForecastCase]:
     return sorted(cases, key=lambda case: (case.anchor, case.user_id))
 
 
-def predict_case(case: ForecastCase, predictor: CyclePredictionService) -> dict:
+def predict_case(case: ForecastCase, predictor: CyclePredictionService) -> dict | None:
     """Use the same history gate, shrinkage, rounding, clipping and CI as the API."""
     anchor = case.anchor.date()
+    if not history_is_supported(case.history.to_dict("records")):
+        return None
     history = case.ml_history
     if len(history) >= 4:
-        prediction = predictor.predict(
-            build_prediction_feature_row(history, anchor), anchor,
-            n_complete_cycles=len(history), user_mean=float(history.cycle_length.mean()),
-        )
+        try:
+            prediction = predictor.predict(
+                build_prediction_feature_row(history, anchor), anchor,
+                n_complete_cycles=len(history), user_mean=float(history.cycle_length.mean()),
+            )
+        except PredictionScopeError:
+            return None
         method = "rf_personalized"
     else:
         prediction = build_basic_prediction(case.history.to_dict("records"), anchor)
-        history = case.history.loc[case.history.cycle_length.between(15, 60)]
+        history = case.history.loc[case.history.cycle_length.between(15, 45)]
         if history.empty:
             history = case.history.tail(1)
         method = "basic_stats"
     if prediction is None:
-        raise ValueError("The online pipeline could not predict an eligible case")
+        return None
     lengths = history.cycle_length.to_numpy(dtype=float)
     smooth = float(lengths[0])
     for length in lengths[1:]:
@@ -263,21 +269,26 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
 
     predictor = fit(train_cases)
     seen_users = {case.user_id for case in train_cases}
-    existing = [predict_case(case, predictor) for case in test_cases if case.user_id in seen_users]
+    def predict_supported(selected, model):
+        return [record for case in selected if (record := predict_case(case, model)) is not None]
+    existing_targets = [case for case in test_cases if case.user_id in seen_users]
+    existing = predict_supported(existing_targets, predictor)
     if calibrated:
         existing_fits = fit_interval_calibrators(
-            [predict_case(case, predictor) for case in calibration_cases if case.user_id in seen_users],
+            predict_supported([case for case in calibration_cases if case.user_id in seen_users], predictor),
             target_coverage,
         )
         existing = apply_interval_calibration(existing, existing_fits)
     existing_summary = summarize(existing)
     existing_summary["training_samples"] = len(train_cases)
+    existing_summary["candidate_samples"] = len(existing_targets)
+    existing_summary["abstained_samples"] = len(existing_targets) - len(existing)
     existing_summary["excluded_unseen_cases"] = sum(case.user_id not in seen_users for case in test_cases)
     if calibrated:
         existing_summary["calibration"] = summarize_interval_calibration(existing, [existing_fits], target_coverage)
 
     users = sorted({case.user_id for case in cases})
-    unseen, unseen_fits, folds, empty_folds = [], [], 0, 0
+    unseen, unseen_fits, folds, empty_folds, unseen_candidates = [], [], 0, 0, 0
     if len(users) >= 2:
         for _, held_positions in GroupKFold(n_splits=min(n_splits, len(users))).split(
             np.zeros((len(users), 1)), groups=users,
@@ -289,11 +300,12 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
                 empty_folds += 1
                 continue
             predictor = fit(prefix)
-            predicted = [predict_case(case, predictor) for case in targets]
+            predicted = predict_supported(targets, predictor)
+            unseen_candidates += len(targets)
             if calibrated:
                 # Held-out users are absent from both global training and calibration.
                 fits = fit_interval_calibrators(
-                    [predict_case(case, predictor) for case in calibration_cases if case.user_id not in held_users],
+                    predict_supported([case for case in calibration_cases if case.user_id not in held_users], predictor),
                     target_coverage,
                 )
                 predicted = apply_interval_calibration(predicted, fits)
@@ -302,6 +314,8 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
             folds += 1
     unseen_summary = summarize(unseen)
     unseen_summary["n_splits"] = folds
+    unseen_summary["candidate_samples"] = unseen_candidates
+    unseen_summary["abstained_samples"] = unseen_candidates - len(unseen)
     unseen_summary["skipped_empty_folds"] = empty_folds
     if calibrated:
         unseen_summary["calibration"] = summarize_interval_calibration(unseen, unseen_fits, target_coverage)
