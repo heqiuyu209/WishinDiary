@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 
 import pytest
 
@@ -86,3 +87,116 @@ def test_admin_summary_recommends_independent_interval_calibration(client, auth_
     assert "test_user" not in response.text
     monkeypatch.setattr(settings, "ADMIN_USER_IDS", "")
     assert client.get("/api/v1/admin/research").status_code == 403
+
+
+def _calibrated_report():
+    report = deepcopy(_report())
+    report["schema_version"] = 2
+    evaluation = report["evaluation"]
+    evaluation["training_labels_available_through"] = "2024-03-28"
+    evaluation["calibration"] = {
+        "method": "absolute_residual_split", "cutoff": "2024-04-01",
+        "labels_available_through": "2024-04-28", "candidate_samples": 9,
+        "target_coverage_pct": 90,
+    }
+    for name in ("existing_users", "unseen_users"):
+        value = deepcopy(evaluation["protocols"][name])
+        value["n_splits"] = 1
+        value["calibration"] = {"target_coverage_pct": 90, "methods": {
+            "rf_personalized": {
+                "fits": [{"samples": 9, "rank": 9, "available": True, "radius_days": 0,
+                          "email": "never-return@example.com"}],
+                "test_samples": 2, "unavailable_samples": 0,
+                "calibrated": {"samples": 2, "coverage_pct": 100, "mean_width_days": 0},
+                "comparison": {
+                    "samples": 2,
+                    "original": {"samples": 2, "coverage_pct": 50, "mean_width_days": 0},
+                    "calibrated": {"samples": 2, "coverage_pct": 100, "mean_width_days": 0},
+                    "records": [{"email": "never-return@example.com"}],
+                },
+            },
+            "basic_stats": {
+                "fits": [{"samples": 0, "rank": 1, "available": False}],
+                "test_samples": 0, "unavailable_samples": 0,
+                "calibrated": {"samples": 0, "coverage_pct": 100, "mean_width_days": 99},
+                "comparison": {"samples": 0, "original": {"samples": 0}, "calibrated": {"samples": 0}},
+            },
+        }}
+        evaluation["protocols"][name] = value
+    return report
+
+
+def test_schema_two_whitelists_calibration_and_preserves_zero_radius(tmp_path, monkeypatch):
+    _write(tmp_path, monkeypatch, _calibrated_report())
+    result = read_forecast_report()
+    assert result["available"] and result["pipeline_matches_report"]
+    assert result["calibration"]["cutoff"] == "2024-04-01"
+    methods = result["protocols"]["existing_users"]["calibration"]["methods"]
+    assert methods["rf_personalized"]["fits"][0]["radius_days"] == 0
+    assert methods["rf_personalized"]["comparison"]["calibrated"]["mean_width_days"] == 0
+    assert methods["basic_stats"]["calibrated"] == {"samples": 0}
+    assert "never-return" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("invalid", [
+    "training_after_calibration", "calibration_after_test", "unknown_calibration_labels", "method",
+    "paired_samples", "target", "radius", "available", "paths", "percentage", "folds",
+])
+def test_invalid_calibration_report_fails_explicitly(tmp_path, monkeypatch, invalid):
+    report = _calibrated_report()
+    evaluation = report["evaluation"]
+    calibrated = evaluation["protocols"]["existing_users"]["calibration"]
+    rf = calibrated["methods"]["rf_personalized"]
+    if invalid == "training_after_calibration":
+        evaluation["training_labels_available_through"] = "2024-04-02"
+    elif invalid == "calibration_after_test":
+        evaluation["calibration"]["labels_available_through"] = "2024-05-02"
+    elif invalid == "unknown_calibration_labels":
+        evaluation["calibration"]["labels_available_through"] = None
+    elif invalid == "method":
+        evaluation["calibration"]["method"] = "never-return@example.com"
+    elif invalid == "paired_samples":
+        rf["comparison"]["original"]["samples"] = 1
+    elif invalid == "target":
+        calibrated["target_coverage_pct"] = 95
+    elif invalid == "radius":
+        rf["fits"][0]["radius_days"] = -1
+    elif invalid == "available":
+        rf["fits"][0]["available"] = False
+    elif invalid == "paths":
+        rf["test_samples"] = 3
+    elif invalid == "percentage":
+        rf["comparison"]["calibrated"]["coverage_pct"] = 101
+    elif invalid == "folds":
+        rf["fits"] = rf["fits"] * 101
+    _write(tmp_path, monkeypatch, report)
+    assert read_forecast_report()["available"] is False
+
+
+def test_empty_calibration_segment_keeps_point_scores_but_no_finite_intervals(tmp_path, monkeypatch):
+    report = _calibrated_report()
+    report["evaluation"]["calibration"].update(candidate_samples=0, labels_available_through=None)
+    for value in report["evaluation"]["protocols"].values():
+        rf = value["calibration"]["methods"]["rf_personalized"]
+        rf.update(fits=[{"samples": 0, "rank": 1, "available": False}], unavailable_samples=2,
+                  calibrated={"samples": 0},
+                  comparison={"samples": 0, "original": {"samples": 0}, "calibrated": {"samples": 0}})
+    _write(tmp_path, monkeypatch, report)
+    result = read_forecast_report()
+    assert result["available"] is True
+    assert result["protocols"]["existing_users"]["models"]["online_pipeline"]["mae"] == 0
+    assert result["protocols"]["existing_users"]["calibration"]["methods"]["rf_personalized"]["unavailable_samples"] == 2
+
+
+def test_admin_calibration_recommendations_do_not_call_the_target_a_guarantee(client, auth_header, tmp_path, monkeypatch):
+    user_id = client.get("/api/v1/auth/session").json()["user_id"]
+    monkeypatch.setattr(settings, "ADMIN_USER_IDS", str(user_id))
+    report = _calibrated_report()
+    report["evaluation"]["protocols"]["existing_users"]["calibration"]["methods"]["rf_personalized"]["calibrated"]["coverage_pct"] = 50
+    _write(tmp_path, monkeypatch, report)
+    result = client.get("/api/v1/admin/research").json()
+    assert result["forecast_evaluation"]["calibration"]["target_coverage_pct"] == 90
+    assert any("低于实验目标" in item for item in result["recommendations"])
+    assert any("独立时间校准实验" in item for item in result["recommendations"])
+    assert not any("优先建立独立时间校准段" in item for item in result["recommendations"])
+    assert "never-return" not in json.dumps(result)

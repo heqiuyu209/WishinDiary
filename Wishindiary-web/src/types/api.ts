@@ -111,6 +111,25 @@ export interface ResearchSummary extends StatusResponse {
 export type ForecastProtocol = 'existing_users' | 'unseen_users';
 export type ForecastMethod = 'online_pipeline' | 'mean3' | 'median3' | 'ewma';
 export type ForecastGroup = 'history' | 'volatility' | 'missing_bleeding';
+export type ForecastIntervalMethod = 'rf_personalized' | 'basic_stats';
+
+export interface ForecastIntervalScores {
+  samples: number;
+  coverage_pct?: number;
+  mean_width_days?: number;
+}
+
+export interface ForecastCalibrationMethod {
+  fits: { samples: number; rank: number; available: boolean; radius_days?: number }[];
+  test_samples: number;
+  unavailable_samples: number;
+  calibrated: ForecastIntervalScores;
+  comparison: {
+    samples: number;
+    original: ForecastIntervalScores;
+    calibrated: ForecastIntervalScores;
+  };
+}
 
 export interface ForecastScores {
   samples: number;
@@ -136,6 +155,14 @@ export interface ForecastEvaluation {
   git_commit?: string;
   cutoff?: string;
   dataset?: { source: string; total_cycles: number; n_users: number };
+  calibration?: {
+    method: 'absolute_residual_split';
+    cutoff: string;
+    target_coverage_pct: number;
+    candidate_samples: number;
+    labels_available_through: string | null;
+    training_labels_available_through: string;
+  };
   protocols?: Partial<
     Record<
       ForecastProtocol,
@@ -151,6 +178,10 @@ export interface ForecastEvaluation {
           >
         >;
         groups?: Partial<Record<ForecastGroup, (ForecastScores & { label: string })[]>>;
+        calibration?: {
+          target_coverage_pct: number;
+          methods: Record<ForecastIntervalMethod, ForecastCalibrationMethod>;
+        };
       }
     >
   >;

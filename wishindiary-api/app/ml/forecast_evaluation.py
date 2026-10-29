@@ -17,6 +17,9 @@ from app.features.cycle_feature_engineering import (
 )
 from app.ml.basic_prediction import build_basic_prediction
 from app.ml.contract import FEATURE_NAMES
+from app.ml.interval_calibration import (
+    apply_interval_calibration, fit_interval_calibrators, summarize_interval_calibration,
+)
 from app.services.cycle_prediction_service import CyclePredictionService
 
 MODEL_KEYS = ("online_pipeline", "mean3", "median3", "ewma")
@@ -37,7 +40,7 @@ class ForecastCase:
 def pipeline_fingerprint() -> str:
     """Identify the evaluated calculation, independently of a deployed weight file."""
     root = Path(__file__).resolve().parents[1]
-    paths = ("ml/forecast_evaluation.py", "ml/basic_prediction.py", "ml/contract.py",
+    paths = ("ml/forecast_evaluation.py", "ml/interval_calibration.py", "ml/basic_prediction.py", "ml/contract.py",
              "features/cycle_feature_engineering.py", "services/cycle_prediction_service.py",
              "services/prediction_service.py")
     digest = hashlib.sha256()
@@ -170,7 +173,9 @@ def summarize_forecasts(records: list[dict]) -> dict:
 
 
 def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.2,
-                          n_splits: int = 5, cutoff=None, model_factory=None) -> dict:
+                          n_splits: int = 5, cutoff=None, model_factory=None,
+                          calibration_fraction: float = 0.0, calibration_cutoff=None,
+                          target_coverage: float = 0.9) -> dict:
     """Evaluate seen/unseen users with training labels available at a fixed cutoff.
 
     Unseen means absent from global RF training, not necessarily lacking personal
@@ -178,6 +183,11 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
     """
     if not 0 < test_fraction < 1 or n_splits < 2:
         raise ValueError("Invalid backtest fraction or fold count")
+    if not 0 <= calibration_fraction < 1 - test_fraction:
+        raise ValueError("Invalid calibration fraction")
+    calibrated = calibration_fraction > 0 or calibration_cutoff is not None
+    if calibrated:
+        fit_interval_calibrators([], target_coverage)  # Validate the declared target before fitting.
     cases = build_forecast_cases(raw_cycles)
     if len(cases) < 2:
         raise ValueError("Backtesting requires at least two eligible forecast cases")
@@ -185,11 +195,23 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
         index = min(len(cases) - 1, max(1, int(len(cases) * (1 - test_fraction))))
         cutoff = cases[index].anchor
     cutoff = pd.Timestamp(cutoff)
-    if pd.isna(cutoff):
+    if pd.isna(cutoff) or cutoff.tz is not None or cutoff != cutoff.normalize():
         raise ValueError("Backtesting requires a valid calendar cutoff")
+    if calibrated:
+        if calibration_cutoff is None:
+            index = max(1, int(len(cases) * (1 - test_fraction - calibration_fraction)))
+            calibration_cutoff = cases[index].anchor
+        calibration_cutoff = pd.Timestamp(calibration_cutoff)
+        if (pd.isna(calibration_cutoff) or calibration_cutoff.tz is not None
+                or calibration_cutoff != calibration_cutoff.normalize()
+                or calibration_cutoff >= cutoff):
+            raise ValueError("The calibration cutoff must precede the test calendar cutoff")
+    training_cutoff = calibration_cutoff if calibrated else cutoff
     train_cases = [case for case in cases if case.target_is_healthy and len(case.ml_history) >= 3
-                   and case.anchor < cutoff
-                   and case.anchor + pd.Timedelta(days=case.actual_length) <= cutoff]
+                   and case.anchor < training_cutoff
+                   and case.anchor + pd.Timedelta(days=case.actual_length) <= training_cutoff]
+    calibration_cases = [case for case in cases if calibrated and calibration_cutoff <= case.anchor < cutoff
+                         and case.anchor + pd.Timedelta(days=case.actual_length) <= cutoff]
     test_cases = [case for case in cases if case.anchor >= cutoff]
     if not train_cases or not test_cases:
         raise ValueError("The cutoff leaves no usable training or test cases")
@@ -204,12 +226,20 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
     predictor = fit(train_cases)
     seen_users = {case.user_id for case in train_cases}
     existing = [predict_case(case, predictor) for case in test_cases if case.user_id in seen_users]
+    if calibrated:
+        existing_fits = fit_interval_calibrators(
+            [predict_case(case, predictor) for case in calibration_cases if case.user_id in seen_users],
+            target_coverage,
+        )
+        existing = apply_interval_calibration(existing, existing_fits)
     existing_summary = summarize_forecasts(existing)
     existing_summary["training_samples"] = len(train_cases)
     existing_summary["excluded_unseen_cases"] = sum(case.user_id not in seen_users for case in test_cases)
+    if calibrated:
+        existing_summary["calibration"] = summarize_interval_calibration(existing, [existing_fits], target_coverage)
 
     users = sorted({case.user_id for case in cases})
-    unseen, folds, empty_folds = [], 0, 0
+    unseen, unseen_fits, folds, empty_folds = [], [], 0, 0
     if len(users) >= 2:
         for _, held_positions in GroupKFold(n_splits=min(n_splits, len(users))).split(
             np.zeros((len(users), 1)), groups=users,
@@ -221,12 +251,23 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
                 empty_folds += 1
                 continue
             predictor = fit(prefix)
-            unseen.extend(predict_case(case, predictor) for case in targets)
+            predicted = [predict_case(case, predictor) for case in targets]
+            if calibrated:
+                # Held-out users are absent from both global training and calibration.
+                fits = fit_interval_calibrators(
+                    [predict_case(case, predictor) for case in calibration_cases if case.user_id not in held_users],
+                    target_coverage,
+                )
+                predicted = apply_interval_calibration(predicted, fits)
+                unseen_fits.append(fits)
+            unseen.extend(predicted)
             folds += 1
     unseen_summary = summarize_forecasts(unseen)
     unseen_summary["n_splits"] = folds
     unseen_summary["skipped_empty_folds"] = empty_folds
-    return {
+    if calibrated:
+        unseen_summary["calibration"] = summarize_interval_calibration(unseen, unseen_fits, target_coverage)
+    result = {
         "available": True,
         "cutoff": cutoff.date().isoformat(),
         "candidate_samples": len(cases),
@@ -237,3 +278,13 @@ def run_forecast_backtest(raw_cycles: pd.DataFrame, *, test_fraction: float = 0.
                        "ewma_alpha": EWMA_ALPHA, "history_limit": 50, "ml_min_history": 4},
         "protocols": {"existing_users": existing_summary, "unseen_users": unseen_summary},
     }
+    if calibrated:
+        result["calibration"] = {
+            "method": "absolute_residual_split", "cutoff": calibration_cutoff.date().isoformat(),
+            "candidate_samples": len(calibration_cases), "target_coverage_pct": target_coverage * 100,
+            "labels_available_through": max(
+                (case.anchor + pd.Timedelta(days=case.actual_length) for case in calibration_cases),
+                default=pd.NaT,
+            ).date().isoformat() if calibration_cases else None,
+        }
+    return result

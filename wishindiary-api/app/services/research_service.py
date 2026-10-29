@@ -116,7 +116,17 @@ class ResearchService:
                     recommendations.append(f"{label}回测中完整流程尚未超过最好的简单基线：比较个人历史权重和窗口长度，并用独立未来数据复核。")
                 interval = result["intervals"].get("rf_personalized", {})
                 coverage = interval.get("coverage_pct")
-                if coverage is not None and coverage < 90:
+                calibration = result.get("calibration")
+                if calibration:
+                    recommendations.append(f"{label}已建立独立时间校准实验：同时比较覆盖率与区间宽度，用新的授权时间段复核，避免根据当前测试结果反复选择参数。")
+                    for method, method_label in (("rf_personalized", "RF"), ("basic_stats", "基础统计")):
+                        calibrated = calibration["methods"][method]
+                        if calibrated["unavailable_samples"]:
+                            recommendations.append(f"{label}的{method_label}路径有 {calibrated['unavailable_samples']} 条测试样本缺少足够校准历史：补充该路径的已完成校准周期，不与另一条路径混合。")
+                        measured = calibrated["calibrated"].get("coverage_pct")
+                        if measured is not None and measured < calibration["target_coverage_pct"]:
+                            recommendations.append(f"{label}的{method_label}校准区间覆盖率为 {measured:.2f}%，低于实验目标：研究时间变化、用户差异与波动分组，在新的测试段复核。")
+                elif coverage is not None and coverage < 90:
                     recommendations.append(f"{label}的树分位区间覆盖率为 {coverage:.2f}%：优先建立独立时间校准段，再在未使用的未来测试段验证覆盖率与宽度。")
         return {
             "status": "success",
